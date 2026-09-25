@@ -101,8 +101,8 @@
   {{ adapter.dispatch('load_csv_rows', 'dbt')(model, agate_table) }}
 {%- endmacro %}
 
--- funcsign: (model, agate_table) -> string
-{% macro default__load_csv_rows(model, agate_table) %}
+-- funcsign: (model, agate_table, optional[list[string]]) -> string
+{% macro default__load_csv_rows(model, agate_table, column_types=none) %}
 
   {% set batch_size = get_batch_size() %}
 
@@ -122,7 +122,7 @@
           insert into {{ this.render() }} ({{ cols_sql }}) values
           {% for row in chunk -%}
               ({%- for column in agate_table.column_names -%}
-                  {{ get_binding_char() }}
+                  {% if column_types is not none %}cast({{ get_binding_char() }} as {{ column_types[loop.index0] }}){% else %}{{ get_binding_char() }}{% endif %}
                   {%- if not loop.last%},{%- endif %}
               {%- endfor -%})
               {%- if not loop.last%},{%- endif %}

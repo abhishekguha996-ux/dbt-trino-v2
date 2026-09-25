@@ -15,8 +15,8 @@
     {{ return(equals(source_unique_key, target_unique_key) | trim) }}
 {%- endmacro %}
 
--- funcsign: (string, string, string|list[string]|none, list[base_column], optional[list[string]]) -> string
-{% macro default__get_merge_sql(target, source, unique_key, dest_columns, incremental_predicates=none) -%}
+-- funcsign: (string, string, string|list[string]|none, list[base_column], optional[list[string]], optional[bool]) -> string
+{% macro default__get_merge_sql(target, source, unique_key, dest_columns, incremental_predicates=none, qualify_insert_values=false) -%}
     {%- set predicates = [] if incremental_predicates is none else [] + incremental_predicates -%}
     {%- set dest_cols_csv = get_quoted_csv(dest_columns | map(attribute="name")) -%}
     {%- set merge_update_columns = config.get('merge_update_columns') -%}
@@ -59,7 +59,11 @@
     when not matched then insert
         ({{ dest_cols_csv }})
     values
+    {% if qualify_insert_values %}
+        ({% for column in dest_columns %}DBT_INTERNAL_SOURCE.{{ adapter.quote(column.name) }}{% if not loop.last %}, {% endif %}{% endfor %})
+    {% else %}
         ({{ dest_cols_csv }})
+    {% endif %}
 
 {% endmacro %}
 

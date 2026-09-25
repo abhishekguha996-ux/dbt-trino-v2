@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-09-25",
+  "platform": "linux/arm64",
+  "dbt_commit": "841c74e863df51b89d208b1ad0eca388aa0f32a4",
+  "images": {
+    "rust": "rust:1.96.0-bookworm@sha256:05f85ef6eb0f2600ac62e9d779642b5b362d5be2ed67b80e162fae6e28b66524",
+    "trino": "trinodb/trino:483@sha256:aa18e61b2e7776ab8641ba8baaa8687d0430894e88c639e61010cc46a994ab36"
+  },
+  "inputs": [
+    {
+      "kind": "dbt-source",
+      "filename": "dbt-841c74e863df51b89d208b1ad0eca388aa0f32a4.tar.gz",
+      "url": "https://codeload.github.com/dbt-labs/dbt/tar.gz/841c74e863df51b89d208b1ad0eca388aa0f32a4",
+      "sha256": "d525ddfc7efb668618e7102693de52b6f5e293307f883ba8f0c356686833fa59",
+      "size": 15709237
+    },
+    {
+      "kind": "driver",
+      "filename": "trino_linux_arm64_v0.5.3.tar.gz",
+      "url": "https://github.com/adbc-drivers/trino/releases/download/go/v0.5.3/trino_linux_arm64_v0.5.3.tar.gz",
+      "sha256": "2039423afc3d7cd4dd76c45cc59e272b7be3d76df4d5fe63439ab2097e619417",
+      "size": 10513507
+    },
+    {
+      "kind": "wheel",
+      "filename": "adbc_driver_manager-1.12.0-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl",
+      "url": "https://files.pythonhosted.org/packages/85/a2/5ede53173a420742fa71d6c26792e2295fc73f25cf39055f912a5385b1f0/adbc_driver_manager-1.12.0-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl",
+      "sha256": "78c9936adb280e2c10e90632e41b58aa23be358e1136d8fb3c52862b72818a95",
+      "size": 4663735
+    },
+    {
+      "kind": "wheel",
+      "filename": "pyarrow-25.0.1-cp311-cp311-manylinux_2_28_aarch64.whl",
+      "url": "https://files.pythonhosted.org/packages/c1/b2/cdc98ecf1a6408280bc3a6a07054cdd99a3f4670acc0545d383ce113e87d/pyarrow-25.0.1-cp311-cp311-manylinux_2_28_aarch64.whl",
+      "sha256": "880523be3d29efcf83d3998835d206118ccf35e3871dbd2fb60408cf6b007a80",
+      "size": 46834633
+    },
+    {
+      "kind": "wheel",
+      "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "size": 45571
+    }
+  ]
+}

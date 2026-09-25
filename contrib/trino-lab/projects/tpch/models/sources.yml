@@ -1,0 +1,21 @@
+version: 2
+sources:
+  - name: tpch
+    database: tpch
+    schema: tiny
+    tables:
+      - name: customer
+      - name: orders
+      - name: lineitem
+      - name: supplier
+      - name: nation
+      - name: region
+models:
+  - name: shipping_revenue
+    columns:
+      - name: orderkey
+        data_tests: [unique, not_null]
+  - name: regional_revenue
+    columns:
+      - name: nation
+        data_tests: [unique, not_null]

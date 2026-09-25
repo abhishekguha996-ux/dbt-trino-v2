@@ -1,0 +1,11 @@
+**
+!.inputs/
+!.inputs/**
+!sources.lock.json
+!Cargo.lock
+!sandbox/
+!sandbox/**
+!scripts/
+!scripts/*.py
+!projects/
+!projects/**

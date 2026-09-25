@@ -69,9 +69,11 @@ pub fn get_relation(
         AdapterType::Spark => {
             spark_get_relation(adapter, state, ctx, conn, schema, identifier, token)
         }
-        AdapterType::DuckDB | AdapterType::LakeCompute => duckdb_get_relation(
-            adapter, state, ctx, conn, database, schema, identifier, token,
-        ),
+        AdapterType::DuckDB | AdapterType::LakeCompute | AdapterType::Trino => {
+            information_schema_get_relation(
+                adapter, state, ctx, conn, database, schema, identifier, token,
+            )
+        }
         AdapterType::Fabric => fabric_get_relation(
             adapter, state, ctx, conn, database, schema, identifier, token,
         ),
@@ -83,7 +85,6 @@ pub fn get_relation(
         ),
         AdapterType::Starburst => todo!("Starburst"),
         AdapterType::Athena => todo!("Athena"),
-        AdapterType::Trino => todo!("Trino"),
         AdapterType::Dremio => todo!("Dremio"),
         AdapterType::Oracle => todo!("Oracle"),
         AdapterType::Datafusion => todo!("Datafusion"),
@@ -886,7 +887,7 @@ fn salesforce_get_relation(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn duckdb_get_relation(
+fn information_schema_get_relation(
     adapter: &AdapterImpl,
     state: &State,
     ctx: &QueryCtx,
@@ -910,7 +911,10 @@ fn duckdb_get_relation(
         identifier.to_lowercase()
     };
 
-    if !schema.is_empty()
+    if matches!(
+        adapter.adapter_type(),
+        AdapterType::DuckDB | AdapterType::LakeCompute
+    ) && !schema.is_empty()
         && !identifier.is_empty()
         && crate::metadata::duckdb::is_duckdb_v2_external_iceberg_catalog_database(database)
     {
@@ -949,17 +953,15 @@ fn duckdb_get_relation(
         }
     }
 
-    // Query INFORMATION_SCHEMA.TABLES for relation metadata
-    // DuckDB's table_type values: BASE TABLE, VIEW, LOCAL TEMPORARY
+    let information_schema = match adapter.adapter_type() {
+        AdapterType::Trino => format!("{}.information_schema", adapter.quote(database)),
+        _ => "information_schema".to_string(),
+    };
     let sql = format!(
-        r#"
-            SELECT table_type as type
-            FROM information_schema.tables
-            WHERE table_schema = '{}'
-              AND table_name = '{}'
-        "#,
-        dbt_adapter_sql::ident::escape_string_literal(&query_schema, AdapterType::DuckDB),
-        dbt_adapter_sql::ident::escape_string_literal(&query_identifier, AdapterType::DuckDB),
+        "SELECT table_type as type FROM {information_schema}.tables \
+         WHERE table_schema = '{}' AND table_name = '{}'",
+        dbt_adapter_sql::ident::escape_string_literal(&query_schema, adapter.adapter_type()),
+        dbt_adapter_sql::ident::escape_string_literal(&query_identifier, adapter.adapter_type()),
     );
 
     let batch = adapter

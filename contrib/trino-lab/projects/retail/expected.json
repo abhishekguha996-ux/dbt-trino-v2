@@ -1,0 +1,20 @@
+{
+  "rows": {
+    "raw_customers": 50,
+    "raw_products": 20,
+    "raw_orders": 200,
+    "raw_order_lines": 500,
+    "raw_payments": 209,
+    "raw_refunds": 25,
+    "expected_orders": 200,
+    "expected_customers": 50,
+    "expected_daily": 28
+  },
+  "totals": {
+    "gross_cents": 891460,
+    "paid_cents": 767351,
+    "refund_cents": 10121,
+    "net_cents": 757230
+  },
+  "customers_without_orders": 5
+}

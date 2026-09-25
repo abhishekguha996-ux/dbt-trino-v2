@@ -1,0 +1,115 @@
+name: dbt-trino-lab
+
+x-lab: &lab
+  image: dbt-trino-lab-runner:local
+  platform: linux/arm64
+  build:
+    context: ..
+    dockerfile: sandbox/Dockerfile.lab
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  init: true
+  restart: "no"
+  pids_limit: 256
+  ulimits:
+    core: {soft: 0, hard: 0}
+    nofile: 8192
+  volumes:
+    - work:/workspace
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,size=268435456,mode=1777
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+  labels:
+    org.dbt-trino-lab.owner: dbt-trino-lab
+
+services:
+  prepare:
+    <<: *lab
+    profiles: [setup]
+    command: [prepare]
+    cpus: 1
+    mem_limit: 1g
+    memswap_limit: 1g
+    networks: [acquisition]
+  builder:
+    <<: *lab
+    profiles: [build]
+    command: [baseline]
+    cpus: 2
+    mem_limit: 4g
+    memswap_limit: 4g
+    network_mode: none
+  runner:
+    <<: *lab
+    profiles: [smoke]
+    command: [smoke]
+    cpus: 0.5
+    mem_limit: 768m
+    memswap_limit: 768m
+    networks: [test]
+    dns: [127.0.0.1]
+    depends_on:
+      trino:
+        condition: service_healthy
+  trino:
+    profiles: [smoke]
+    image: dbt-trino-lab-trino:local
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: sandbox/Dockerfile.trino
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: "no"
+    cpus: 1.5
+    mem_limit: 3g
+    memswap_limit: 3g
+    pids_limit: 512
+    ulimits:
+      core: {soft: 0, hard: 0}
+      nofile: 8192
+    volumes:
+      - trino-data:/data/trino
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=134217728,mode=1777
+    networks: [test]
+    dns: [127.0.0.1]
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS --max-time 3 http://127.0.0.1:8080/v1/info | grep -q '\"starting\":false'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    labels:
+      org.dbt-trino-lab.owner: dbt-trino-lab
+
+networks:
+  acquisition:
+    labels:
+      org.dbt-trino-lab.owner: dbt-trino-lab
+  test:
+    internal: true
+    enable_ipv6: false
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+    labels:
+      org.dbt-trino-lab.owner: dbt-trino-lab
+
+volumes:
+  work:
+    labels:
+      org.dbt-trino-lab.owner: dbt-trino-lab
+  trino-data:
+    labels:
+      org.dbt-trino-lab.owner: dbt-trino-lab

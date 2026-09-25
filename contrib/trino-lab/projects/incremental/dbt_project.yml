@@ -1,0 +1,5 @@
+name: trino_incremental
+version: '1.0.0'
+config-version: 2
+profile: trino_lab
+model-paths: [models]

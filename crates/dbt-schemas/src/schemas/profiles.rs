@@ -313,8 +313,15 @@ impl DbConfig {
             | AdapterType::Oracle => &[],
             // TODO(serramatutu): Spark connection keys
             AdapterType::Spark => &[],
-            // TODO: Trino and Datafusion connection keys
-            AdapterType::Trino => &[],
+            AdapterType::Trino => &[
+                "host",
+                "port",
+                "user",
+                "database",
+                "schema",
+                "http_scheme",
+                "method",
+            ],
             AdapterType::Datafusion => &[],
             AdapterType::Fabric => &[
                 "server",
@@ -933,6 +940,10 @@ pub struct TrinoDbConfig {
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_scheme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, DbtSchema, Merge)]

@@ -27,8 +27,8 @@ use crate::metadata::databricks::dbr_capabilities::DbrComputeContext;
 use crate::metadata::databricks::version::EngineVersion;
 use crate::metadata::duckdb::DuckDBMetadataAdapter;
 use crate::metadata::duckdb::{classify_attach_entry, duckdb_table_format_for_database};
-use crate::metadata::exasol::ExasolMetadataAdapter;
 use crate::metadata::fabric::FabricMetadataAdapter;
+use crate::metadata::generic::GenericMetadataAdapter;
 use crate::metadata::postgres::PostgresMetadataAdapter;
 use crate::metadata::redshift::RedshiftMetadataAdapter;
 use crate::metadata::salesforce::SalesforceMetadataAdapter;
@@ -403,12 +403,10 @@ impl AdapterImpl {
                         }
                         ClickHouse => Box::new(ClickHouseMetadataAdapter::new(engine))
                             as Box<dyn MetadataAdapter>,
-                        Exasol => {
-                            Box::new(ExasolMetadataAdapter::new(engine)) as Box<dyn MetadataAdapter>
-                        }
+                        Exasol | Trino => Box::new(GenericMetadataAdapter::new(engine))
+                            as Box<dyn MetadataAdapter>,
                         Starburst => todo!("Starburst"),
                         Athena => todo!("Athena"),
-                        Trino => todo!("Trino"),
                         Datafusion => todo!("Datafusion"),
                         Dremio => todo!("Dremio"),
                         Oracle => todo!("Oracle"),
@@ -743,7 +741,8 @@ impl AdapterImpl {
             ClickHouse => &[Append, DeleteInsert, InsertOverwrite, Microbatch, Legacy],
             Spark => &[Append, Merge, InsertOverwrite, Microbatch],
             Exasol => &[Append, DeleteInsert, Merge, Microbatch],
-            Athena | Starburst | Trino | Datafusion | Dremio | Oracle => {
+            Trino => &[Append, Merge],
+            Athena | Starburst | Datafusion | Dremio | Oracle => {
                 unimplemented!("valid_incremental_strategies not implemented")
             }
         }
@@ -1299,7 +1298,7 @@ impl AdapterImpl {
                 Exasol => "name",
                 Starburst => todo!("Starburst"),
                 Athena => todo!("Athena"),
-                Trino => todo!("Trino"),
+                Trino => "schema_name",
                 Datafusion => todo!("Datafusion"),
                 Dremio => todo!("Dremio"),
                 Oracle => todo!("Oracle"),
@@ -1914,10 +1913,11 @@ impl AdapterImpl {
 
         // All-platform features.
         if name == "transactions" {
-            if self.adapter_type() == DuckDB && duckdb_is_motherduck(self.engine().get_config()) {
-                return Ok(Some(false));
-            }
-            return Ok(Some(true));
+            return Ok(Some(match self.adapter_type() {
+                Trino => false,
+                DuckDB => !duckdb_is_motherduck(self.engine().get_config()),
+                _ => true,
+            }));
         }
 
         // platform-specific features.
@@ -2948,7 +2948,8 @@ impl AdapterImpl {
             (ClickHouse, NotNull | Unique | PrimaryKey | ForeignKey | Custom) => NotSupported,
 
             // Salesforce
-            (Salesforce | Spark | Starburst | Athena | Trino | Datafusion | Dremio | Oracle, _) => {
+            (Trino, _) => NotSupported,
+            (Salesforce | Spark | Starburst | Athena | Datafusion | Dremio | Oracle, _) => {
                 unimplemented!("constraint support not implemented")
             }
         }
@@ -4184,9 +4185,12 @@ impl AdapterImpl {
             Impl(Fabric, engine) => {
                 fabric::list_relations(engine.as_ref(), query_ctx, conn, db_schema, token)
             }
+            Impl(Trino, engine) => {
+                generic::list_relations(engine.as_ref(), query_ctx, conn, db_schema, token)
+            }
             Impl(
                 adapter_type @ (Postgres | Salesforce | ClickHouse | Exasol | Starburst | Athena
-                | Trino | Datafusion | Dremio | Oracle),
+                | Datafusion | Dremio | Oracle),
                 _,
             ) => {
                 let err = AdapterError::new(

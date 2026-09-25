@@ -1,0 +1,13 @@
+.inputs/
+reports/*
+!reports/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store
+.approval.json
+upstream/
+**/target/
+**/logs/
+**/dbt_packages/
+
+!/Cargo.lock

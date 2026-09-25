@@ -1,0 +1,847 @@
+{
+  "status": "experimental_pass_with_documented_limits",
+  "tested_date": "2026-09-25",
+  "platform": "linux/arm64",
+  "dbt_base_commit": "841c74e863df51b89d208b1ad0eca388aa0f32a4",
+  "trino_version": "483",
+  "adbc_trino_version": "go/v0.5.3",
+  "rust_version": "1.96.0",
+  "packaged_build_exit": 0,
+  "packaged_test_exit": 0,
+  "host_tests_passed": 9,
+  "rust_tests": {
+    "candidate-auth-sql-tests": [
+      {
+        "passed": 43,
+        "ignored": 0
+      },
+      {
+        "passed": 324,
+        "ignored": 3
+      }
+    ],
+    "candidate-column-column_builder-tests": [
+      {
+        "passed": 9,
+        "ignored": 0
+      }
+    ],
+    "candidate-sql_types-tests": [
+      {
+        "passed": 18,
+        "ignored": 0
+      }
+    ],
+    "candidate-metadata-duckdb-tests": [
+      {
+        "passed": 7,
+        "ignored": 0
+      }
+    ],
+    "candidate-macro-tests": [
+      {
+        "passed": 181,
+        "ignored": 0
+      }
+    ]
+  },
+  "rust_tests_passed": 582,
+  "binary": {
+    "dbt_version": "2.0.5",
+    "base_commit": "841c74e863df51b89d208b1ad0eca388aa0f32a4",
+    "sha256": "630e22350b57ab900b6b890b560f876db53384e916c9ee9f3375b5dd2eb5282c"
+  },
+  "dbt_projects": {
+    "memory_retail": {
+      "status": "pass",
+      "count": 36,
+      "ephemeral_noops": 2,
+      "results": [
+        {
+          "node": "model.trino_retail.aggregate_checks",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_payments",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_payments",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.int_payments",
+          "status": "skipped"
+        },
+        {
+          "node": "seed.trino_retail.raw_refunds",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_refunds",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.int_refunds",
+          "status": "skipped"
+        },
+        {
+          "node": "seed.trino_retail.raw_order_lines",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_order_lines",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_orders",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_orders",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.fct_orders",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_customers",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_customers",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.customer_lifetime_value",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.daily_sales",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.join_checks",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_products",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_products",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.product_rankings",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.edge_values",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.expected_customers",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.expected_daily",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.expected_orders",
+          "status": "success"
+        },
+        {
+          "node": "test.trino_retail.aggregates_match_expected",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.assert_customer_totals",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.assert_daily_totals",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.assert_order_totals",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.joins_match_expected",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_customer_lifetime_value_customer_id.c206bdd83a",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_daily_sales_order_date.eadffc112b",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_fct_orders_customer_id.16fe324f7b",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_fct_orders_order_id.4e687af8d0",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.relationships_fct_orders_customer_id__customer_id__ref_stg_customers_.aaa6d401fd",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.seed_edge_values",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.unique_customer_lifetime_value_customer_id.90786299e9",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.unique_daily_sales_order_date.c6a8bc92e0",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.unique_fct_orders_order_id.523ddb6ce5",
+          "status": "pass"
+        }
+      ],
+      "repeat_and_catalog": "pass"
+    },
+    "iceberg_retail": {
+      "status": "pass",
+      "count": 36,
+      "ephemeral_noops": 2,
+      "results": [
+        {
+          "node": "model.trino_retail.aggregate_checks",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_payments",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_payments",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.int_payments",
+          "status": "skipped"
+        },
+        {
+          "node": "seed.trino_retail.raw_refunds",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_refunds",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.int_refunds",
+          "status": "skipped"
+        },
+        {
+          "node": "seed.trino_retail.raw_order_lines",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_order_lines",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_orders",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_orders",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.fct_orders",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_customers",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_customers",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.customer_lifetime_value",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.daily_sales",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.join_checks",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.raw_products",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.stg_products",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_retail.product_rankings",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.edge_values",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.expected_customers",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.expected_daily",
+          "status": "success"
+        },
+        {
+          "node": "seed.trino_retail.expected_orders",
+          "status": "success"
+        },
+        {
+          "node": "test.trino_retail.aggregates_match_expected",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.assert_customer_totals",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.assert_daily_totals",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.assert_order_totals",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.joins_match_expected",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_customer_lifetime_value_customer_id.c206bdd83a",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_daily_sales_order_date.eadffc112b",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_fct_orders_customer_id.16fe324f7b",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.not_null_fct_orders_order_id.4e687af8d0",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.relationships_fct_orders_customer_id__customer_id__ref_stg_customers_.aaa6d401fd",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.seed_edge_values",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.unique_customer_lifetime_value_customer_id.90786299e9",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.unique_daily_sales_order_date.c6a8bc92e0",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_retail.unique_fct_orders_order_id.523ddb6ce5",
+          "status": "pass"
+        }
+      ],
+      "repeat_and_catalog": "pass"
+    },
+    "memory_tpch": {
+      "status": "pass",
+      "count": 7,
+      "ephemeral_noops": 0,
+      "results": [
+        {
+          "node": "model.trino_tpch.regional_revenue",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_tpch.shipping_revenue",
+          "status": "success"
+        },
+        {
+          "node": "test.trino_tpch.assert_positive_revenue",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.not_null_regional_revenue_nation.4c1054326f",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.not_null_shipping_revenue_orderkey.de298fa725",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.unique_regional_revenue_nation.bc6810df94",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.unique_shipping_revenue_orderkey.8c417a9644",
+          "status": "pass"
+        }
+      ],
+      "repeat_and_catalog": "pass"
+    },
+    "delta_tpch": {
+      "status": "pass",
+      "count": 7,
+      "ephemeral_noops": 0,
+      "results": [
+        {
+          "node": "model.trino_tpch.regional_revenue",
+          "status": "success"
+        },
+        {
+          "node": "model.trino_tpch.shipping_revenue",
+          "status": "success"
+        },
+        {
+          "node": "test.trino_tpch.assert_positive_revenue",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.not_null_regional_revenue_nation.4c1054326f",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.not_null_shipping_revenue_orderkey.de298fa725",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.unique_regional_revenue_nation.bc6810df94",
+          "status": "pass"
+        },
+        {
+          "node": "test.trino_tpch.unique_shipping_revenue_orderkey.8c417a9644",
+          "status": "pass"
+        }
+      ],
+      "repeat_and_catalog": "pass"
+    }
+  },
+  "incremental-memory": [
+    {
+      "catalog": "memory",
+      "model": "append_events",
+      "stage": "initial",
+      "status": "pass",
+      "rows": 2
+    },
+    {
+      "catalog": "memory",
+      "model": "append_events",
+      "stage": "update",
+      "status": "pass",
+      "rows": 3
+    },
+    {
+      "catalog": "memory",
+      "model": "append_events",
+      "stage": "repeat",
+      "status": "pass",
+      "rows": 3
+    },
+    {
+      "catalog": "memory",
+      "model": "append_events",
+      "stage": "refresh",
+      "status": "pass",
+      "rows": 2
+    }
+  ],
+  "incremental-iceberg": [
+    {
+      "catalog": "iceberg",
+      "model": "append_events",
+      "stage": "initial",
+      "status": "pass",
+      "rows": 2
+    },
+    {
+      "catalog": "iceberg",
+      "model": "append_events",
+      "stage": "update",
+      "status": "pass",
+      "rows": 3
+    },
+    {
+      "catalog": "iceberg",
+      "model": "append_events",
+      "stage": "repeat",
+      "status": "pass",
+      "rows": 3
+    },
+    {
+      "catalog": "iceberg",
+      "model": "append_events",
+      "stage": "refresh",
+      "status": "pass",
+      "rows": 2
+    },
+    {
+      "catalog": "iceberg",
+      "model": "merge_events",
+      "stage": "initial",
+      "status": "pass",
+      "rows": 2
+    },
+    {
+      "catalog": "iceberg",
+      "model": "merge_events",
+      "stage": "update",
+      "status": "pass",
+      "rows": 3
+    },
+    {
+      "catalog": "iceberg",
+      "model": "merge_events",
+      "stage": "repeat",
+      "status": "pass",
+      "rows": 3
+    },
+    {
+      "catalog": "iceberg",
+      "model": "merge_events",
+      "stage": "refresh",
+      "status": "pass",
+      "rows": 2
+    }
+  ],
+  "tls-tests": [
+    {
+      "name": "trusted_tls_password",
+      "status": "pass",
+      "dbt_returncode": 0
+    },
+    {
+      "name": "incorrect_password",
+      "status": "pass",
+      "dbt_returncode": 1
+    },
+    {
+      "name": "untrusted_certificate",
+      "status": "pass",
+      "dbt_returncode": 1
+    },
+    {
+      "name": "hostname_mismatch",
+      "status": "pass",
+      "dbt_returncode": 1
+    }
+  ],
+  "resilience-tests": [
+    {
+      "name": "server_execution_timeout",
+      "status": "pass",
+      "error": "INTERNAL: [trino] [Trino] failed to create record reader: failed to execute query: trino: query failed (200 OK): \"INSUFFICIENT_RESOURCES: Query exceeded the maximum execution time limit of 1.00ms\". Vendor code: 131075"
+    },
+    {
+      "name": "reuse_after_timeout",
+      "status": "pass"
+    },
+    {
+      "name": "adbc_statement_cancel",
+      "status": "unsupported",
+      "seconds": 10.652,
+      "detail": "Driver did not interrupt execution; the server watchdog stopped the synthetic query"
+    },
+    {
+      "name": "reuse_after_cancel_attempt",
+      "status": "pass"
+    },
+    {
+      "name": "stress_query_not_running",
+      "status": "pass"
+    }
+  ],
+  "persistence-tests": {
+    "status": "pass",
+    "tables": {
+      "iceberg_orders": [
+        "200",
+        "757230"
+      ],
+      "delta_revenue": [
+        "138",
+        "12364206.8366"
+      ]
+    }
+  },
+  "tpch-oracle-memory": {
+    "status": "pass",
+    "source_line_count": 60175,
+    "shipping_groups": 138,
+    "shipping_total": "12364206.8366",
+    "regional_groups": 5,
+    "regional_total": "3391042.9114"
+  },
+  "tpch-oracle-delta": {
+    "status": "pass",
+    "source_line_count": 60175,
+    "shipping_groups": 138,
+    "shipping_total": "12364206.8366",
+    "regional_groups": 5,
+    "regional_total": "3391042.9114"
+  },
+  "isolation-test": [
+    {
+      "name": "/dbt-trino-lab-test-7ded0b27",
+      "service": "runner",
+      "image_id": "sha256:6dc574eb2eb0dec09024306acba627e4d7652bb481d938ea98cd66eeb09c1018",
+      "status": "passed",
+      "cpu_limit": 0.5,
+      "memory_limit": 805306368,
+      "network": [
+        "dbt-trino-lab_test"
+      ],
+      "volume": "dbt-trino-lab_work"
+    },
+    {
+      "name": "/dbt-trino-lab-trino-1",
+      "service": "trino",
+      "image_id": "sha256:cdef9ef58238230d6a1eee7e550f5710bb2e05933bed287e3069465875c57f4d",
+      "status": "passed",
+      "cpu_limit": 1.5,
+      "memory_limit": 3221225472,
+      "network": [
+        "dbt-trino-lab_test"
+      ],
+      "volume": "dbt-trino-lab_trino-data"
+    }
+  ],
+  "driver_cases": [
+    {
+      "name": "inner_duplicate_keys",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "left_unmatched_and_nulls",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "right_unmatched_and_nulls",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "full_outer",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "bounded_cross",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "self_join",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "non_equality_join",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "exists",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "not_exists",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "basic_aggregates",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "having",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "all_null",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "empty_input",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "conditional_and_filter",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "rollup",
+      "status": "pass",
+      "details": {
+        "rows": 5
+      }
+    },
+    {
+      "name": "grouping_sets",
+      "status": "pass",
+      "details": {
+        "rows": 5
+      }
+    },
+    {
+      "name": "window_total",
+      "status": "pass",
+      "details": {
+        "rows": 4
+      }
+    },
+    {
+      "name": "decimal_exact",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "parameter_binding",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "unicode",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "arrow_ingestion",
+      "status": "pass",
+      "details": {
+        "rows": 3
+      }
+    },
+    {
+      "name": "table_schema",
+      "status": "pass",
+      "details": "id: int64\n  -- field metadata --\n  sql.column_name: 'id'\n  sql.database_type_name: 'BIGINT'\namount: int64\n  -- field metadata --\n  sql.column_name: 'amount'\n  sql.database_type_name: 'BIGINT'"
+    },
+    {
+      "name": "record_batch_stream",
+      "status": "pass",
+      "details": {
+        "rows": 10000,
+        "batches_observed": 10
+      }
+    },
+    {
+      "name": "error_and_reuse",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "tpch_tiny",
+      "status": "pass",
+      "details": {
+        "rows": 1
+      }
+    }
+  ],
+  "candidate_source_sha256": {
+    "crates/dbt-adapter-sql/src/types/mod.rs": "d1c8f3cbb2d8132c2c3b2b152f65cfd22a39a9e9b6ea243a5064822191d04553",
+    "crates/dbt-adapter-sql/src/types/tests.rs": "46a9695d96100aaf9ddd70260155bd790f52626e8462158ba7ca877b5c2b73bb",
+    "crates/dbt-adapter/src/adapter/adapter_factory.rs": "ba68a6272f34da6a0029594ed4b3fcd46d8c8a52e4cff9a224d50f5deec484fc",
+    "crates/dbt-adapter/src/adapter/adapter_impl.rs": "68da014b567a4def63351453da377aded9c39e7c8b66f6f63db6cd9442e0f74d",
+    "crates/dbt-adapter/src/column/column_builder.rs": "770460f7d8388c9dbd9d82ad44f7e710b57f20b05ffd86099f3e26cfc8cfafa7",
+    "crates/dbt-adapter/src/column/types.rs": "cb8b3397595654937f81bcb06e93a0bb48e0ac67735dee99faadef62eaa2d1d3",
+    "crates/dbt-adapter/src/engine/adbc.rs": "60fdce3970fe6213d31c17037f2b8a154657f7eb380bc80aaba9f86db48e3d18",
+    "crates/dbt-adapter/src/metadata/duckdb/mod.rs": "950c40246246c71810fd58859a6f7e0b9a63e95b8f77b80813214073fa69ff65",
+    "crates/dbt-adapter/src/metadata/generic.rs": "356b630e27248b6e6da8285b19a4eb62a3ae4091b178ce7ca12fdc084013aa14",
+    "crates/dbt-adapter/src/metadata/get_relation.rs": "b81bc966549ea13a1901d72e8087d869cea79f7297d9e4a05369a78bd8d837fc",
+    "crates/dbt-adapter/src/metadata/mod.rs": "34a301331b7999e25f65a67b0c7e6925290562e08d34f63ac1883747731effa3",
+    "crates/dbt-adapter/src/relation/factory.rs": "383eb840fb3b36b42e28988961218f1abd81bfcc073b425121175c292e0e2f07",
+    "crates/dbt-adapter/src/sql_types.rs": "600bb55313692c3696949871dda50f7abf9d4e05724f444976053afc6bc642b5",
+    "crates/dbt-auth/src/lib.rs": "aaaf1e677406d7d738ce5546532e35a817504ee8de15185691ccba275d9992eb",
+    "crates/dbt-auth/src/trino/mod.rs": "ce8630528c97eb888b5ac33da31cd49997c20b9a804529b6230e433ae8b617fd",
+    "crates/dbt-df-providers/src/seed_io.rs": "855799da49f4a773cece7312ed02a1b86496c07aaa9c80b13a60822f3c9b89d1",
+    "crates/dbt-loader/src/dbt_macro_assets/dbt-adapters/macros/materializations/models/incremental/merge.sql": "64b1288ad651926ae23cffa725f101e76d62c33a9555fb081d72f9fd4ce0e8d9",
+    "crates/dbt-loader/src/dbt_macro_assets/dbt-adapters/macros/materializations/seeds/helpers.sql": "410e26f550b3516f2a9a514d594298d9a3f66f028ec4a6164f2109da3b22bcc9",
+    "crates/dbt-loader/src/dbt_macro_assets/dbt-trino/dbt_project.yml": "f3a2c326fef0241aeb510ed686baba06e35d8734cb674e073339df3d6f3fcd66",
+    "crates/dbt-loader/src/dbt_macro_assets/dbt-trino/macros/adapters.sql": "2f3797ea24314965aac1aaaf061e04a94bba2aa3a2ef46b974ce156e53b9c56c",
+    "crates/dbt-loader/src/dbt_macro_assets/dbt-trino/macros/catalog.sql": "efc9cca20a4ce363b70abf8e7402e393fbe29b5c2bf737910a3e1075ed447080",
+    "crates/dbt-loader/src/dbt_macro_assets/dbt-trino/macros/incremental.sql": "1ee5fbd5c2ba428655380627899d03d30660376ef4aa107abf5ff63e38727bce",
+    "crates/dbt-loader/src/dbt_macro_assets/dbt-trino/macros/seeds.sql": "5d7be1e07b985d33d6a9e0fd7078c0e1afe33e2a87cc02654fad31e4945f9425",
+    "crates/dbt-loader/tests/macros/mod.rs": "a1d86acdd5febe9a592cb1f0ecccb2f63b570b0e9ed80ca7f9f1d45811e126cb",
+    "crates/dbt-loader/tests/macros/trino.rs": "5ae51a9a82556bd574b04d486806336c72b228c4aa58dec77e752263bca96578",
+    "crates/dbt-schemas/src/schemas/profiles.rs": "91dbc40878f50f80db54f8979338f164452f36f1eb1dd9d401ae93ab08c03b31"
+  },
+  "deleted_source_files": [
+    "crates/dbt-adapter/src/metadata/exasol/mod.rs"
+  ],
+  "configuration_sha256": "af341f4b337ccbc6bede13db361f9cc4d528f53e6b90752de9101f4c65d23993",
+  "cargo_lock_sha256": "3e57b0a75ea49d4c44f04bd49a5e311380e736290030d4b22db4806382e4fa8d"
+}

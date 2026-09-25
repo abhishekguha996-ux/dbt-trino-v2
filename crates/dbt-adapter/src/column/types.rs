@@ -282,6 +282,10 @@ impl ColumnStatic {
             // ClickHouseColumn.string_type ignores the size: always plain String,
             // never FixedString (would break contract comparisons and ALTERs).
             AdapterType::ClickHouse => "String".to_string(),
+            AdapterType::Trino => match size {
+                Some(size) => format!("varchar({size})"),
+                None => "varchar".to_string(),
+            },
             _ => match size {
                 Some(size) => format!("character varying({size})"),
                 _ => "character varying".to_string(),
@@ -586,6 +590,25 @@ impl Column {
         let (core_dtype, core_data_type) =
             Self::make_degenerate_types(adapter_type, &original_sql_str);
 
+        let (core_dtype, char_size, numeric_precision, numeric_scale) = match adapter_type {
+            AdapterType::Trino => match SqlType::parse(adapter_type, &original_sql_str) {
+                Ok((SqlType::Varchar(length, _), _)) => (
+                    "varchar".to_string(),
+                    length.and_then(|n| u32::try_from(n).ok()).or(char_size),
+                    numeric_precision,
+                    numeric_scale,
+                ),
+                Ok((SqlType::Numeric(Some((p, scale))), _)) => (
+                    "decimal".to_string(),
+                    char_size,
+                    Some(u64::from(p)),
+                    scale.and_then(|n| u64::try_from(n).ok()),
+                ),
+                _ => (core_dtype, char_size, numeric_precision, numeric_scale),
+            },
+            _ => (core_dtype, char_size, numeric_precision, numeric_scale),
+        };
+
         Self {
             _adapter_type: adapter_type,
             _nullable: None,
@@ -860,6 +883,7 @@ impl Column {
         if self.core_dtype == "text" || self.char_size.is_none() {
             let size = match self._adapter_type {
                 AdapterType::Snowflake => 16777216,
+                AdapterType::Trino => i32::MAX as u32,
                 _ => 256,
             };
             Ok(size)
@@ -980,6 +1004,7 @@ impl Column {
     pub fn data_type(&self) -> String {
         // FIXME: replace all implementations with core_data_type
         match self._adapter_type {
+            AdapterType::Trino => self.core_data_type.clone(),
             AdapterType::Bigquery => {
                 fn bigquery_data_type_inner(col: &Column) -> String {
                     let base = if col._fields.is_empty() {

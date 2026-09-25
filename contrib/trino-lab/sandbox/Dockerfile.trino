@@ -1,0 +1,5 @@
+FROM trinodb/trino:483@sha256:aa18e61b2e7776ab8641ba8baaa8687d0430894e88c639e61010cc46a994ab36
+USER root
+RUN rm -f /etc/trino/catalog/*.properties
+COPY --chown=1000:1000 sandbox/trino/ /etc/trino/
+USER 1000:1000
