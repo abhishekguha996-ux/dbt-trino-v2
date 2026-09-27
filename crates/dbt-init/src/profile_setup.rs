@@ -177,6 +177,7 @@ impl ProfileSetup {
             AdapterType::Postgres,
             AdapterType::Redshift,
             AdapterType::Fabric,
+            AdapterType::Trino,
         ]
     }
 
@@ -612,10 +613,21 @@ impl ProfileSetup {
 
 #[cfg(test)]
 mod tests {
-    use super::adapter_type_for_profile;
+    use super::{ProfileSetup, adapter_type_for_profile};
+    use dbt_adapter_core::AdapterType;
 
     fn parse(yaml: &str) -> serde_json::Value {
         dbt_yaml::from_str(yaml).unwrap()
+    }
+
+    #[test]
+    fn available_adapters_match_the_headless_setup() {
+        let adapters = ProfileSetup::get_available_adapters();
+        assert_eq!(
+            adapters,
+            dbt_profile_schemas::headless::supported_adapters()
+        );
+        assert!(adapters.contains(&AdapterType::Trino));
     }
 
     #[test]

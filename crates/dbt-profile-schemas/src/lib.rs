@@ -11,6 +11,7 @@ mod fabric_config;
 mod postgres_config;
 mod redshift_config;
 mod snowflake_config;
+mod trino_config;
 
 pub mod common;
 pub mod headless;
@@ -110,8 +111,9 @@ impl ProfileSetup {
                 todo!("setup_starburst_profile")
             }
             Trino => {
-                let _c0 = unwrap_db_config!(Trino);
-                todo!("setup_trino_profile")
+                let c0 = unwrap_db_config!(Trino);
+                let c1 = trino_config::setup_trino_profile(c0.map(Box::as_ref))?;
+                Ok(DbConfig::Trino(c1))
             }
             Datafusion => {
                 let _c0 = unwrap_db_config!(Datafusion);

@@ -11,6 +11,7 @@ use dbt_common::{ErrorCode, FsResult, fs_err};
 use dbt_schemas::schemas::profiles::{
     BigqueryDbConfig, ClickHouseDbConfig, DatabricksDbConfig, DbConfig, DuckDbConfig,
     ExasolDbConfig, FabricDbConfig, PostgresDbConfig, RedshiftDbConfig, SnowflakeDbConfig,
+    TrinoDbConfig,
 };
 use dbt_schemas::schemas::serde::StringOrInteger;
 
@@ -33,6 +34,7 @@ pub fn supported_adapters() -> Vec<AdapterType> {
         AdapterType::Postgres,
         AdapterType::Redshift,
         AdapterType::Fabric,
+        AdapterType::Trino,
     ]
 }
 
@@ -48,6 +50,7 @@ pub fn adapter_fields(adapter: AdapterType) -> FsResult<Vec<ConfigField>> {
         AdapterType::Postgres => PostgresDbConfig::get_fields(),
         AdapterType::Redshift => RedshiftDbConfig::get_fields(),
         AdapterType::Fabric => FabricDbConfig::get_fields(),
+        AdapterType::Trino => TrinoDbConfig::get_fields(),
         other => {
             return Err(fs_err!(
                 ErrorCode::InvalidConfig,
@@ -256,6 +259,13 @@ pub fn build_profile_target(
             // Fabric's interactive setup does not apply a `threads` default.
             let config = apply_values(&default_fabric_config(), values)?;
             DbConfig::Fabric(Box::new(config))
+        }
+        AdapterType::Trino => {
+            let mut config = apply_values(&TrinoDbConfig::default(), values)?;
+            if config.threads.is_none() {
+                config.threads = Some(StringOrInteger::Integer(4));
+            }
+            DbConfig::Trino(Box::new(config))
         }
         other => {
             return Err(fs_err!(
