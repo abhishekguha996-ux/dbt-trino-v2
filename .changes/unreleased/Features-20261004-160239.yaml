@@ -1,0 +1,7 @@
+kind: Features
+body: '[Trino] Profile schema and ADBC authentication: dbt-trino v1 profile fields, the none, ldap, jwt and kerberos methods, and clear errors for unsupported options'
+time: 2026-10-04T16:02:39.358167-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core

@@ -328,8 +328,22 @@ impl DbConfig {
                 "tenant_id",
                 "client_id",
             ],
-            // TODO: Trino and Datafusion connection keys
-            AdapterType::Trino => &[],
+            AdapterType::Trino => &[
+                "host",
+                "port",
+                "user",
+                "database",
+                "schema",
+                "method",
+                "http_scheme",
+                "cert",
+                "prepared_statements_enabled",
+                "retries",
+                "timezone",
+                "client_tags",
+                "roles",
+                "session_properties",
+            ],
             AdapterType::Datafusion => &[],
             AdapterType::Fabric => &[
                 "server",
@@ -1008,24 +1022,98 @@ pub struct BigqueryDbConfig {
     pub token_endpoint: Option<YmlValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, DbtSchema, Merge)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, DbtSchema, Merge)]
 #[merge(strategy = merge_strategies_extend::overwrite_option)]
 #[serde(rename_all = "snake_case")]
 pub struct TrinoDbConfig {
-    // Configuration Parameters
-    pub port: Option<StringOrInteger>, // Setting as Option but required as of dbt 1.7.1
-    pub user: Option<String>,          // Setting as Option but required as of dbt 1.7.1
+    // Field names follow the dbt-trino v1 credentials so existing profiles load unchanged:
+    // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/connections.py
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<StringOrInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "catalog")]
     pub database: Option<String>,
-    pub host: Option<String>, // Setting as Option but required as of dbt 1.7.1
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threads: Option<StringOrInteger>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_scheme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub roles: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub session_properties: Option<HashMap<String, YmlValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub client_tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub http_headers: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cert: Option<YmlValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prepared_statements_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retries: Option<StringOrInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suppress_cert_warning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impersonation_user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_certificate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_private_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keytab: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub krb5_config: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutual_authentication: Option<YmlValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub force_preemptive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname_override: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sanitize_mutual_error_response: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delegate: Option<bool>,
+    /// Query timeout: a positive number of seconds, such as `300` or `1.5`, or a duration such
+    /// as `30m`; the driver default is 10h (not a dbt-trino v1 field). Kept as the YAML value,
+    /// so that an unquoted decimal parses; dbt-auth validates it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_timeout: Option<YmlValue>,
+    // dbt-trino v1.10.5 Starburst Data Discovery sync, which dbt-auth rejects when
+    // `starburst_url` is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starburst_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starburst_client_id: Option<String>,
+    /// Never serialized: nothing in dbt v2 reads it, so it never reaches the adapter.
+    #[serde(default, skip_serializing)]
+    pub starburst_secret_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starburst_metadata_failure_strategy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starburst_max_column_batch_size: Option<StringOrInteger>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, DbtSchema, Merge)]
@@ -1773,6 +1861,14 @@ pub enum TargetContext {
 #[derive(Serialize, DbtSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct TrinoTargetEnv {
+    pub host: Option<String>,
+    pub port: Option<StringOrInteger>,
+    pub user: Option<String>,
+    pub method: Option<String>,
+    pub http_scheme: Option<String>,
+    pub prepared_statements_enabled: bool,
+    pub timezone: Option<String>,
+    pub client_tags: Option<Vec<String>>,
     pub __common__: CommonTargetContext,
 }
 
@@ -2186,6 +2282,15 @@ impl TryFrom<DbConfig> for TargetContext {
             DbConfig::Trino(config) => {
                 let database = config.database.ok_or_else(|| missing("database"))?;
                 Ok(TargetContext::Trino(TrinoTargetEnv {
+                    host: config.host,
+                    port: config.port,
+                    user: config.user,
+                    method: config.method,
+                    http_scheme: config.http_scheme,
+                    // dbt-trino v1 default: PREPARED_STATEMENTS_ENABLED_DEFAULT = True
+                    prepared_statements_enabled: config.prepared_statements_enabled.unwrap_or(true),
+                    timezone: config.timezone,
+                    client_tags: config.client_tags,
                     __common__: CommonTargetContext {
                         database,
                         schema: config.schema.ok_or_else(|| missing("schema"))?,
@@ -3097,6 +3202,70 @@ extensions:
                 .and_then(|v| v.as_str()),
             Some("my-workgroup")
         );
+    }
+
+    #[test]
+    fn test_trino_v1_profile_reaches_auth_mapping_and_target() {
+        // query_timeout reaches dbt-auth as written; dbt-auth validates it.
+        for (query_timeout, expected) in [
+            ("300", YmlValue::from(300)),
+            ("1.5", YmlValue::from(1.5)),
+            ("'1.5'", YmlValue::from("1.5")),
+            ("30m", YmlValue::from("30m")),
+        ] {
+            // As load_profiles does: parse the YAML, then deserialize the value.
+            let profile: YmlValue = dbt_yaml::from_str(&format!(
+                "type: trino\n\
+                 host: trino.example.com\n\
+                 port: 8443\n\
+                 user: dbt\n\
+                 catalog: iceberg\n\
+                 schema: analytics\n\
+                 query_timeout: {query_timeout}\n\
+                 starburst_url: https://starburst.example.com\n\
+                 starburst_client_id: client\n\
+                 starburst_secret_key: s3cr3t\n\
+                 starburst_metadata_failure_strategy: fail\n\
+                 starburst_max_column_batch_size: 50\n"
+            ))
+            .unwrap();
+            let config: DbConfig = dbt_yaml::from_value(profile).unwrap();
+
+            let DbConfig::Trino(ref trino_config) = config else {
+                panic!("Expected DbConfig::Trino");
+            };
+            assert_eq!(trino_config.database.as_deref(), Some("iceberg"));
+            assert_eq!(trino_config.query_timeout.as_ref(), Some(&expected));
+            assert_eq!(trino_config.starburst_secret_key.as_deref(), Some("s3cr3t"));
+            assert_eq!(
+                trino_config.starburst_max_column_batch_size,
+                Some(StringOrInteger::Integer(50))
+            );
+
+            // dbt-auth reads the full mapping, where `catalog` arrives as `database`. It needs
+            // `starburst_url` to reject the sync, and never receives the secret.
+            let mapping = config.to_mapping().unwrap();
+            assert_eq!(
+                mapping
+                    .get(dbt_yaml::Value::from("database"))
+                    .and_then(|v| v.as_str()),
+                Some("iceberg")
+            );
+            assert_eq!(
+                mapping.get(dbt_yaml::Value::from("query_timeout")),
+                Some(&expected)
+            );
+            assert!(mapping.contains_key(dbt_yaml::Value::from("starburst_url")));
+            assert!(!mapping.contains_key(dbt_yaml::Value::from("starburst_secret_key")));
+
+            let target = TargetContext::try_from(config).expect("trino target context");
+            let TargetContext::Trino(target) = target else {
+                panic!("expected trino target context");
+            };
+            assert_eq!(target.__common__.database, "iceberg");
+            // dbt-trino v1: PREPARED_STATEMENTS_ENABLED_DEFAULT = True
+            assert!(target.prepared_statements_enabled);
+        }
     }
 
     #[test]
