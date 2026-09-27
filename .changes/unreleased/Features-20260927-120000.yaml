@@ -1,0 +1,7 @@
+kind: Features
+body: '[Trino] Experimental Trino adapter over the ADBC Trino driver: dbt-trino v1 profile fields (none/ldap/jwt/kerberos keytab, roles, session properties, client tags, TLS options), the dbt-trino v1.10.5 macro package (table/view/incremental/snapshot/materialized view materializations, on_table_exists, view_security, properties, grants, persist_docs, contracts, nested ROW schema sync), append/merge/delete+insert/microbatch strategies plus insert_overwrite on Hive catalogs, materialized view detection, catalog export and dbt init support.'
+time: 2026-09-27T12:00:00.000000-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core

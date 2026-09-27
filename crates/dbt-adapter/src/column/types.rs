@@ -248,6 +248,13 @@ impl ColumnStatic {
                 "INTEGER" => "Int32",
                 _ => column_type,
             },
+            // TrinoColumn.TYPE_LABELS
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/column.py#L15-L18
+            AdapterType::Trino => match column_type.to_uppercase().as_str() {
+                "STRING" => "VARCHAR",
+                "FLOAT" => "DOUBLE",
+                _ => column_type,
+            },
             // https://github.com/dbt-labs/dbt-adapters/blob/fed0e2e7a2e252175dcc9caccbdd91d354ac6a9d/dbt-adapters/src/dbt/adapters/base/column.py#L24
             _ => match column_type.to_uppercase().as_str() {
                 "STRING" => "TEXT",
@@ -282,6 +289,10 @@ impl ColumnStatic {
             // ClickHouseColumn.string_type ignores the size: always plain String,
             // never FixedString (would break contract comparisons and ALTERs).
             AdapterType::ClickHouse => "String".to_string(),
+            AdapterType::Trino => match size {
+                Some(size) => format!("varchar({size})"),
+                None => "varchar".to_string(),
+            },
             _ => match size {
                 Some(size) => format!("character varying({size})"),
                 _ => "character varying".to_string(),
@@ -296,12 +307,29 @@ impl ColumnStatic {
         name: &str,
         raw_data_type: &str,
     ) -> Result<Column, minijinja::Error> {
-        // TODO(serramatutu): why is this Snowflake specific in non-Snowflake specific trait?
-        // It seems like it is used by other adapters as well... (tested with BigQuery)
-        let mut col = Column::try_from_snowflake_raw_data_type(name, raw_data_type)
-            .map_err(|msg| minijinja::Error::new(minijinja::ErrorKind::InvalidArgument, msg))?;
-        col._adapter_type = self.0;
-        Ok(col)
+        // TrinoColumn.from_description keeps nested types such as `row(...)`, `map(...)` and
+        // `array(...)` verbatim; only varchar/char/decimal carry sizes, which Column::new parses.
+        // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/column.py#L63-L109
+        match self.0 {
+            AdapterType::Trino => Ok(Column::new(
+                AdapterType::Trino,
+                name.to_string(),
+                raw_data_type.to_string(),
+                None,
+                None,
+                None,
+            )),
+            // TODO(serramatutu): why is this Snowflake specific in non-Snowflake specific trait?
+            // It seems like it is used by other adapters as well... (tested with BigQuery)
+            adapter_type => {
+                let mut col = Column::try_from_snowflake_raw_data_type(name, raw_data_type)
+                    .map_err(|msg| {
+                        minijinja::Error::new(minijinja::ErrorKind::InvalidArgument, msg)
+                    })?;
+                col._adapter_type = adapter_type;
+                Ok(col)
+            }
+        }
     }
 
     /// https://github.com/databricks/dbt-databricks/blob/822b105b15e644676d9e1f47cbfd765cd4c1541f/dbt/adapters/databricks/column.py#L66
@@ -586,6 +614,29 @@ impl Column {
         let (core_dtype, core_data_type) =
             Self::make_degenerate_types(adapter_type, &original_sql_str);
 
+        let (core_dtype, char_size, numeric_precision, numeric_scale) = match adapter_type {
+            AdapterType::Trino => match SqlType::parse(adapter_type, &original_sql_str) {
+                Ok((sql_type @ (SqlType::Varchar(length, _) | SqlType::Char(length)), _)) => (
+                    match sql_type {
+                        SqlType::Char(_) => "char",
+                        _ => "varchar",
+                    }
+                    .to_string(),
+                    length.and_then(|n| u32::try_from(n).ok()).or(char_size),
+                    numeric_precision,
+                    numeric_scale,
+                ),
+                Ok((SqlType::Numeric(Some((p, scale))), _)) => (
+                    "decimal".to_string(),
+                    char_size,
+                    Some(u64::from(p)),
+                    scale.and_then(|n| u64::try_from(n).ok()),
+                ),
+                _ => (core_dtype, char_size, numeric_precision, numeric_scale),
+            },
+            _ => (core_dtype, char_size, numeric_precision, numeric_scale),
+        };
+
         Self {
             _adapter_type: adapter_type,
             _nullable: None,
@@ -860,6 +911,7 @@ impl Column {
         if self.core_dtype == "text" || self.char_size.is_none() {
             let size = match self._adapter_type {
                 AdapterType::Snowflake => 16777216,
+                AdapterType::Trino => i32::MAX as u32,
                 _ => 256,
             };
             Ok(size)
@@ -906,6 +958,11 @@ impl Column {
                 matches!(self.core_dtype.to_lowercase().as_str(), "int64")
             }
             AdapterType::Snowflake => false,
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/column.py#L39-L46
+            AdapterType::Trino => matches!(
+                self.core_dtype.to_lowercase().as_str(),
+                "tinyint" | "smallint" | "integer" | "int" | "bigint"
+            ),
             _ => {
                 matches!(
                     self.core_dtype.to_lowercase().as_str(),
@@ -952,6 +1009,10 @@ impl Column {
 
     fn is_string(&self) -> bool {
         match self._adapter_type {
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/column.py#L29-L30
+            AdapterType::Trino => {
+                matches!(self.core_dtype.to_lowercase().as_str(), "varchar" | "char")
+            }
             AdapterType::Bigquery | AdapterType::ClickHouse => {
                 matches!(
                     self.core_dtype.to_lowercase().as_str(),
@@ -980,6 +1041,7 @@ impl Column {
     pub fn data_type(&self) -> String {
         // FIXME: replace all implementations with core_data_type
         match self._adapter_type {
+            AdapterType::Trino => self.core_data_type.clone(),
             AdapterType::Bigquery => {
                 fn bigquery_data_type_inner(col: &Column) -> String {
                     let base = if col._fields.is_empty() {
@@ -1258,6 +1320,42 @@ mod tests {
         assert_eq!(col.translate_type("float"), "Float32");
         assert_eq!(col.translate_type("integer"), "Int32");
         assert_eq!(col.translate_type("UInt64"), "UInt64");
+    }
+
+    /// TrinoColumn.TYPE_LABELS and type predicates.
+    #[test]
+    fn test_trino_type_labels_and_predicates() {
+        let col = ColumnStatic(AdapterType::Trino);
+        assert_eq!(col.translate_type("string"), "VARCHAR");
+        assert_eq!(col.translate_type("float"), "DOUBLE");
+        assert_eq!(col.translate_type("bigint"), "bigint");
+        let column = |dtype: &str| {
+            Column::new(
+                AdapterType::Trino,
+                "c".to_string(),
+                dtype.to_string(),
+                None,
+                None,
+                None,
+            )
+        };
+        assert!(column("tinyint").is_integer());
+        assert!(column("int").is_integer());
+        assert!(column("char(3)").is_string());
+        assert!(!column("text").is_string());
+        assert!(column("double").is_float());
+        assert!(column("decimal(10, 2)").is_numeric());
+
+        for raw in [
+            "row(\"x\" integer, \"y\" varchar)",
+            "map(varchar, array(bigint))",
+            "timestamp(3) with time zone",
+        ] {
+            let parsed = col.from_description("c", raw).unwrap();
+            assert_eq!(parsed.data_type(), raw);
+        }
+        let sized = col.from_description("c", "varchar(20)").unwrap();
+        assert_eq!(sized.string_size().unwrap(), 20);
     }
 
     /// string_type must never manufacture FixedString for ClickHouse.

@@ -1,26 +1,29 @@
-//! Exasol metadata adapter.
+//! Metadata adapter shared by Exasol and Trino.
 //!
 //! Provides the schema-creation preflight (`create_schemas_if_not_exists` ->
-//! `exasol__create_schema`), per-relation schema fetch for unit tests and
-//! contracts (`list_relations_schemas_inner`, via a zero-row probe — the
-//! Exasol ADBC driver returns the result schema even for empty results), and
-//! catalog parsing for `compile --write-catalog`
+//! `<adapter>__create_schema`), per-relation schema fetch for unit tests and
+//! contracts (`list_relations_schemas_inner`, via a zero-row probe — both drivers
+//! return the result schema even for empty results; for Exasol this needs
+//! exarrow-rs >= 0.12.7), and catalog parsing for `compile --write-catalog`
 //! (`build_schemas_from_stats_sql` / `build_columns_from_get_columns` over the
-//! RecordBatch produced by `exasol__get_catalog`). Relation-cache hydration is
+//! RecordBatch produced by `<adapter>__get_catalog`). Exasol's relation-cache hydration is
 //! intentionally empty, so dbt falls back to the per-relation
-//! `list_relations_without_caching` / `get_relation` macros. Metadata-based
-//! source freshness is implemented as `exasol__get_relation_last_modified`;
-//! the `freshness_inner` entry point stays unimplemented until the shared
-//! task graph handles the Source command.
+//! `list_relations_without_caching` / `get_relation` macros; Trino hydrates the cache from
+//! `information_schema` ([`list_relations`]). Metadata-based source freshness is implemented
+//! for Exasol as `exasol__get_relation_last_modified`; the `freshness_inner` entry point stays
+//! unimplemented until the shared task graph handles the Source command. Trino exposes no
+//! last-modified metadata (dbt-trino `TableLastModifiedMetadata: Unsupported`).
 
 use crate::AdapterEngine;
 use crate::adapter::adapter_impl::AdapterImpl;
 use crate::connection::AdapterConnectionFactory;
 use crate::errors::{AdapterError, AdapterErrorKind, AsyncAdapterResult, Cancellable};
+use crate::relation::do_create_relation;
 use crate::{AdapterResult, metadata::*, record_batch::RecordBatchExt};
 use arrow_schema::Schema;
 use dbt_adbc::{Connection, QueryCtx};
 use dbt_common::cancellation::CancellationToken;
+use dbt_schemas::dbt_types::RelationType;
 
 use arrow_array::{Array, Decimal128Array, RecordBatch, StringArray};
 
@@ -37,18 +40,18 @@ use std::collections::{BTreeMap, HashMap};
 use std::future;
 use std::sync::Arc;
 
-pub struct ExasolMetadataAdapter {
+pub struct GenericMetadataAdapter {
     adapter: AdapterImpl,
 }
 
-impl ExasolMetadataAdapter {
+impl GenericMetadataAdapter {
     pub fn new(engine: Arc<dyn AdapterEngine>) -> Self {
         let adapter = AdapterImpl::new(engine, None);
         Self { adapter }
     }
 }
 
-impl MetadataAdapter for ExasolMetadataAdapter {
+impl MetadataAdapter for GenericMetadataAdapter {
     fn adapter_type(&self) -> AdapterType {
         self.adapter.adapter_type()
     }
@@ -92,7 +95,11 @@ impl MetadataAdapter for ExasolMetadataAdapter {
                         "" => None,
                         _ => Some(comment.to_string()),
                     },
-                    owner: Some(owner.to_string()),
+                    // Trino catalogs report no owner (NULL); Exasol always reports one.
+                    owner: match (self.adapter_type(), table_owners.is_null(i)) {
+                        (AdapterType::Trino, true) => None,
+                        _ => Some(owner.to_string()),
+                    },
                 };
 
                 let no_stats = CatalogNodeStats {
@@ -176,15 +183,11 @@ impl MetadataAdapter for ExasolMetadataAdapter {
     ) -> AsyncAdapterResult<'_, HashMap<String, AdapterResult<Arc<Schema>>>> {
         type Acc = HashMap<String, AdapterResult<Arc<Schema>>>;
 
-        // Exasol is a 2-part name system (dbt `database` is a placeholder). The
-        // Arrow schema comes straight from a zero-row probe: the Exasol ADBC
-        // driver (exarrow-rs >= 0.12.7) returns the result-set schema even for
-        // empty results, so no string-based type parsing is needed. The probe
-        // must render the name exactly as materializations do (quote policy
-        // included): under the default policy objects are created quoted, so an
-        // unquoted probe would uppercase-resolve to a different name. The
-        // HashMap key must match `relation.semantic_fqn()`, so both forms are
-        // carried as a tuple.
+        // The Arrow schema comes straight from a zero-row probe (see the module docs). The probe
+        // must render the name exactly as materializations do (quote policy included): under
+        // Exasol's default policy objects are created quoted, so an unquoted probe would
+        // uppercase-resolve to a different name. The HashMap key must match
+        // `relation.semantic_fqn()`, so both forms are carried as a tuple.
         let keys: Vec<(String, String)> = relations
             .iter()
             .map(|relation| (relation.semantic_fqn(), relation.render_self_as_str()))
@@ -237,7 +240,10 @@ impl MetadataAdapter for ExasolMetadataAdapter {
     ) -> AsyncAdapterResult<'_, Vec<(String, AdapterResult<RelationSchemaPair>)>> {
         let err = AdapterError::new(
             AdapterErrorKind::NotSupported,
-            "list_relations_schemas_by_patterns is not yet implemented for the Exasol metadata adapter",
+            format!(
+                "list_relations_schemas_by_patterns is not yet implemented for the {} metadata adapter",
+                self.adapter_type()
+            ),
         );
         Box::pin(future::ready(Err(Cancellable::Error(err))))
     }
@@ -249,7 +255,10 @@ impl MetadataAdapter for ExasolMetadataAdapter {
     ) -> AsyncAdapterResult<'_, BTreeMap<String, MetadataFreshness>> {
         let err = AdapterError::new(
             AdapterErrorKind::NotSupported,
-            "metadata-based source freshness is not yet implemented for the Exasol adapter",
+            format!(
+                "metadata-based source freshness is not yet implemented for the {} adapter",
+                self.adapter_type()
+            ),
         );
         Box::pin(future::ready(Err(Cancellable::Error(err))))
     }
@@ -276,5 +285,124 @@ impl MetadataAdapter for ExasolMetadataAdapter {
         // `list_relations_without_caching` / `get_relation` macros.
         let future = async move { Ok(BTreeMap::new()) };
         Box::pin(future)
+    }
+}
+
+/// Convert information_schema table rows using the engine's relation and quoting policy.
+pub(crate) fn relations_from_information_schema(
+    engine: &dyn AdapterEngine,
+    batch: &RecordBatch,
+) -> AdapterResult<Vec<Arc<dyn BaseRelation>>> {
+    if batch.num_rows() == 0 {
+        return Ok(Vec::new());
+    }
+
+    let table_catalogs = batch.column_values::<StringArray>("table_catalog")?;
+    let table_schemas = batch.column_values::<StringArray>("table_schema")?;
+    let table_names = batch.column_values::<StringArray>("table_name")?;
+    let table_types = batch.column_values::<StringArray>("table_type")?;
+
+    let mut relations = Vec::with_capacity(batch.num_rows());
+    for i in 0..batch.num_rows() {
+        let database = table_catalogs.value(i);
+        let schema = table_schemas.value(i);
+        let name = table_names.value(i);
+        let relation_type = match table_types.value(i) {
+            "BASE TABLE" => RelationType::Table,
+            "VIEW" => RelationType::View,
+            "MATERIALIZED VIEW" => RelationType::MaterializedView,
+            "LOCAL TEMPORARY" => RelationType::Table,
+            other => RelationType::from_adapter_type(engine.adapter_type(), other),
+        };
+
+        let relation = do_create_relation(
+            engine.adapter_type(),
+            database.to_string(),
+            schema.to_string(),
+            Some(name.to_string()),
+            Some(relation_type),
+            engine.quoting(),
+        )
+        .map_err(|e| AdapterError::new(AdapterErrorKind::Internal, e.to_string()))?;
+
+        relations.push(Arc::from(relation));
+    }
+
+    Ok(relations)
+}
+
+/// `information_schema.tables` rows (`table_catalog`, `table_schema`, `table_name`,
+/// `table_type`) for one schema, optionally one table. Used by Trino; DuckDB keeps its own query.
+///
+/// Trino reports materialized views as `BASE TABLE`; they are identified through
+/// `system.metadata.materialized_views`, as dbt-trino v1 does in `list_relations_without_caching`:
+/// https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/include/trino/macros/adapters.sql#L34-L54
+pub(crate) fn information_schema_tables_sql(
+    adapter_type: AdapterType,
+    catalog: &str,
+    schema: &str,
+    table: Option<&str>,
+) -> String {
+    use dbt_adapter_sql::ident::{escape_string_literal, quote_identifier};
+    let schema = escape_string_literal(schema, adapter_type);
+    let table_filter = table
+        .map(|table| {
+            format!(
+                " AND t.table_name = '{}'",
+                escape_string_literal(table, adapter_type)
+            )
+        })
+        .unwrap_or_default();
+    match adapter_type {
+        AdapterType::Trino => {
+            let catalog_literal = escape_string_literal(catalog, adapter_type);
+            let catalog = quote_identifier(catalog, adapter_type);
+            format!(
+                "SELECT t.table_catalog, t.table_schema, t.table_name, \
+                 CASE WHEN mv.name IS NOT NULL THEN 'MATERIALIZED VIEW' ELSE t.table_type END \
+                 AS table_type \
+                 FROM {catalog}.information_schema.tables t \
+                 LEFT JOIN (SELECT name FROM system.metadata.materialized_views \
+                 WHERE catalog_name = '{catalog_literal}' AND schema_name = '{schema}') mv \
+                 ON mv.name = t.table_name \
+                 WHERE t.table_schema = '{schema}'{table_filter}"
+            )
+        }
+        other => unimplemented!("information_schema_tables_sql is not implemented for {other}"),
+    }
+}
+
+pub(crate) fn list_relations(
+    engine: &dyn AdapterEngine,
+    ctx: &QueryCtx,
+    conn: &mut dyn Connection,
+    db_schema: &CatalogAndSchema,
+    token: CancellationToken,
+) -> AdapterResult<Vec<Arc<dyn BaseRelation>>> {
+    let sql = information_schema_tables_sql(
+        engine.adapter_type(),
+        &db_schema.resolved_catalog,
+        &db_schema.resolved_schema,
+        None,
+    );
+    let batch = engine.execute(None, conn, ctx, &sql, token)?;
+    relations_from_information_schema(engine, &batch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trino_tables_sql_identifies_materialized_views_and_escapes() {
+        let sql = information_schema_tables_sql(AdapterType::Trino, "ice\"berg", "it's", Some("t"));
+        assert!(
+            sql.contains("FROM \"ice\"\"berg\".information_schema.tables t"),
+            "{sql}"
+        );
+        assert!(sql.contains("system.metadata.materialized_views"), "{sql}");
+        assert!(sql.contains("catalog_name = 'ice\"berg'"), "{sql}");
+        assert!(sql.contains("schema_name = 'it''s'"), "{sql}");
+        assert!(sql.ends_with("AND t.table_name = 't'"), "{sql}");
     }
 }

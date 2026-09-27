@@ -2,8 +2,12 @@
 All adapter macros are currently maintained in:
 * [dbt-labs/dbt-adapters](https://github.com/dbt-labs/dbt-adapters)
 * [databricks/dbt-databricks](https://github.com/databricks/dbt-databricks)
+* [starburstdata/dbt-trino](https://github.com/starburstdata/dbt-trino)
 
 ## Changelog
+
+### [2026-09-27]
+  - dbt-trino: v1.10.5 (starburstdata/dbt-trino commit 6b097c4), with dbt v2 changes marked `v2:` in each file
 
 ### [2026-08-19]
   - dbt-databricks: view full-refresh precedence from commit 45351e11517d3f37c5ac7a736b5fcba453d3f368

@@ -32,10 +32,9 @@ impl ColumnBuilder {
             }
             Fabric => Ok(Self::build_fabric(field, type_ops)),
             ClickHouse => Self::build_clickhouse(field, type_ops),
-            Exasol => Ok(Self::build_exasol(field, type_ops)),
+            Exasol | Trino => Self::build_standard(field, type_ops),
             Starburst => todo!("Starburst"),
             Athena => todo!("Athena"),
-            Trino => todo!("Trino"),
             Dremio => todo!("Dremio"),
             Oracle => todo!("Oracle"),
             Datafusion => todo!("Datafusion"),
@@ -112,8 +111,8 @@ impl ColumnBuilder {
                 numeric_precision,
                 numeric_scale,
             ),
-            Exasol => Column::new(
-                Exasol,
+            Exasol | Trino => Column::new(
+                self.adapter_type,
                 name,
                 dtype,
                 char_size,
@@ -122,7 +121,6 @@ impl ColumnBuilder {
             ),
             Starburst => todo!("Starburst"),
             Athena => todo!("Athena"),
-            Trino => todo!("Trino"),
             Dremio => todo!("Dremio"),
             Oracle => todo!("Oracle"),
             Datafusion => todo!("Datafusion"),
@@ -521,12 +519,12 @@ impl ColumnBuilder {
         ))
     }
 
-    fn build_exasol(field: &FieldRef, type_ops: &dyn TypeOps) -> Column {
-        use AdapterType::Exasol;
+    fn build_standard(field: &FieldRef, type_ops: &dyn TypeOps) -> AdapterResult<Column> {
+        let adapter_type = type_ops.adapter_type();
         let data_type = field.data_type();
-        let char_size = sql_types::var_size(Exasol, data_type);
+        let char_size = sql_types::var_size(adapter_type, data_type);
         let (numeric_precision, numeric_scale) = {
-            let precision_scale = sql_types::numeric_precision_scale(Exasol, data_type)
+            let precision_scale = sql_types::numeric_precision_scale(adapter_type, data_type)
                 .ok()
                 .flatten();
             match precision_scale {
@@ -536,22 +534,31 @@ impl ColumnBuilder {
             }
         };
 
-        let mut rendered_type = String::new();
-        if type_ops
-            .format_arrow_type_as_sql(data_type, field.is_nullable(), &mut rendered_type)
-            .is_err()
-        {
-            rendered_type = data_type.to_string();
-        }
+        let type_text = match adapter_type {
+            AdapterType::Trino => type_ops.get_original_sql_type_from_field(field),
+            _ => {
+                let mut out = String::new();
+                type_ops
+                    .format_arrow_type_as_sql(data_type, field.is_nullable(), &mut out)
+                    .map(|_| Cow::Owned(out))
+            }
+        };
+        let rendered_type = match type_text {
+            Ok(value) => value.into_owned(),
+            Err(err) => match adapter_type {
+                AdapterType::Exasol => data_type.to_string(),
+                _ => return Err(err),
+            },
+        };
 
-        Column::new(
-            Exasol,
+        Ok(Column::new(
+            adapter_type,
             field.name().to_string(),
             rendered_type,
             char_size.map(|p| p as u32),
             numeric_precision.map(|p| p as u64),
             numeric_scale.map(|s| s as u64),
-        )
+        ))
     }
 
     fn build_redshift(field: &FieldRef, type_ops: &dyn TypeOps) -> Column {
@@ -607,6 +614,32 @@ mod tests {
     use dbt_adapter_sql::types::metadata_sql_type_key;
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    #[test]
+    fn trino_column_preserves_unbounded_strings_and_decimal_precision() {
+        let builder = ColumnBuilder::new(AdapterType::Trino);
+        let ops = DefaultTypeOps::new(AdapterType::Trino);
+        let field = Arc::new(Field::new("memo", DataType::Utf8, true));
+        let column = builder.build(&field, &ops).unwrap();
+        assert_eq!(column.data_type(), "VARCHAR");
+        assert_eq!(column.string_size().unwrap(), i32::MAX as u32);
+        let limited =
+            builder.build_from_parts("memo".into(), "varchar(12)".into(), None, None, None, None);
+        assert_eq!(limited.string_size().unwrap(), 12);
+        assert!(limited.can_expand_to(&column).unwrap());
+        assert!(!column.can_expand_to(&limited).unwrap());
+        let decimal = builder.build_from_parts(
+            "amount".into(),
+            "decimal(18, 2)".into(),
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(decimal.numeric_precision(), Some(18));
+        assert_eq!(decimal.numeric_scale(), Some(2));
+        assert_eq!(decimal.data_type(), "decimal(18, 2)");
+    }
 
     #[test]
     fn test_build_clickhouse_decimal_with_wrappers() {

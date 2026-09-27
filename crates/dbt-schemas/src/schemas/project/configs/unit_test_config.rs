@@ -433,6 +433,12 @@ impl From<ProjectUnitTestConfig> for UnitTestConfig {
                 partition_by: config.partition_by,
 
                 partition_by_config: None,
+                properties: None,
+                view_security: None,
+                on_table_exists: None,
+                sync_nested_columns: None,
+                views_enabled: None,
+                grace_period: None,
 
                 distribute_by_config: None,
 

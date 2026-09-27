@@ -578,24 +578,30 @@ pub trait BaseRelation: BaseRelationProperties + Any + Send + Sync + fmt::Debug 
                 }),
                 end.map(|end| format!("{event_time} < parseDateTime64BestEffort('{end}', 9)")),
             ),
-            // Exasol TIMESTAMP literals take no time-zone offset; strip the
-            // (always +00:00) offset and 'T' from the UTC rfc3339 boundary.
-            AdapterType::Exasol => {
-                let to_exasol_ts = |s: &str| {
+            // Exasol and Trino need TIMESTAMP literals (Trino cannot compare a TIMESTAMP column
+            // with a VARCHAR literal), which take a space separator: strip the 'T' and the
+            // (always +00:00) offset from the UTC rfc3339 boundary. Exasol literals take no
+            // zone; Trino's take a named one.
+            // See: https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/relation.py#L17-L29
+            adapter_type @ (AdapterType::Exasol | AdapterType::Trino) => {
+                let zone = match adapter_type {
+                    AdapterType::Trino => " UTC",
+                    _ => "",
+                };
+                let to_timestamp_literal = |s: &str| {
                     let s = s
                         .trim_end_matches("+00:00")
                         .trim_end_matches('Z')
                         .replace('T', " ");
-                    format!("TIMESTAMP '{s}'")
+                    format!("TIMESTAMP '{s}{zone}'")
                 };
                 (
-                    start.map(|start| format!("{event_time} >= {}", to_exasol_ts(&start))),
-                    end.map(|end| format!("{event_time} < {}", to_exasol_ts(&end))),
+                    start.map(|start| format!("{event_time} >= {}", to_timestamp_literal(&start))),
+                    end.map(|end| format!("{event_time} < {}", to_timestamp_literal(&end))),
                 )
             }
             AdapterType::Starburst => todo!("Starburst"),
             AdapterType::Athena => todo!("Athena"),
-            AdapterType::Trino => todo!("Trino"),
             AdapterType::Datafusion => todo!("Datafusion"),
             AdapterType::Dremio => todo!("Dremio"),
             AdapterType::Oracle => todo!("Oracle"),

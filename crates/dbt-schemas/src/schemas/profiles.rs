@@ -313,8 +313,22 @@ impl DbConfig {
             | AdapterType::Oracle => &[],
             // TODO(serramatutu): Spark connection keys
             AdapterType::Spark => &[],
-            // TODO: Trino and Datafusion connection keys
-            AdapterType::Trino => &[],
+            AdapterType::Trino => &[
+                "host",
+                "port",
+                "user",
+                "database",
+                "schema",
+                "method",
+                "http_scheme",
+                "cert",
+                "prepared_statements_enabled",
+                "retries",
+                "timezone",
+                "client_tags",
+                "roles",
+                "session_properties",
+            ],
             AdapterType::Datafusion => &[],
             AdapterType::Fabric => &[
                 "server",
@@ -915,24 +929,82 @@ pub struct BigqueryDbConfig {
     pub token_endpoint: Option<YmlValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, DbtSchema, Merge)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, DbtSchema, Merge)]
 #[merge(strategy = merge_strategies_extend::overwrite_option)]
 #[serde(rename_all = "snake_case")]
 pub struct TrinoDbConfig {
-    // Configuration Parameters
-    pub port: Option<StringOrInteger>, // Setting as Option but required as of dbt 1.7.1
-    pub user: Option<String>,          // Setting as Option but required as of dbt 1.7.1
+    // Field names follow the dbt-trino v1 credentials so existing profiles load unchanged:
+    // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/connections.py
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<StringOrInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "catalog")]
     pub database: Option<String>,
-    pub host: Option<String>, // Setting as Option but required as of dbt 1.7.1
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threads: Option<StringOrInteger>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_scheme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub roles: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub session_properties: Option<HashMap<String, YmlValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub client_tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[merge(strategy = merge_strategies_extend::overwrite_always)]
+    pub http_headers: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cert: Option<YmlValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prepared_statements_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retries: Option<StringOrInteger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suppress_cert_warning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impersonation_user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_certificate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_private_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keytab: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub krb5_config: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutual_authentication: Option<YmlValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub force_preemptive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname_override: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sanitize_mutual_error_response: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delegate: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_timeout: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, DbtSchema, Merge)]
@@ -1629,6 +1701,14 @@ pub enum TargetContext {
 #[derive(Serialize, DbtSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct TrinoTargetEnv {
+    pub host: Option<String>,
+    pub port: Option<StringOrInteger>,
+    pub user: Option<String>,
+    pub method: Option<String>,
+    pub http_scheme: Option<String>,
+    pub prepared_statements_enabled: bool,
+    pub timezone: Option<String>,
+    pub client_tags: Option<Vec<String>>,
     pub __common__: CommonTargetContext,
 }
 
@@ -1979,6 +2059,15 @@ impl TryFrom<DbConfig> for TargetContext {
             DbConfig::Trino(config) => {
                 let database = config.database.ok_or_else(|| missing("database"))?;
                 Ok(TargetContext::Trino(TrinoTargetEnv {
+                    host: config.host,
+                    port: config.port,
+                    user: config.user,
+                    method: config.method,
+                    http_scheme: config.http_scheme,
+                    // dbt-trino v1 default: PREPARED_STATEMENTS_ENABLED_DEFAULT = True
+                    prepared_statements_enabled: config.prepared_statements_enabled.unwrap_or(true),
+                    timezone: config.timezone,
+                    client_tags: config.client_tags,
                     __common__: CommonTargetContext {
                         database,
                         schema: config.schema.ok_or_else(|| missing("schema"))?,

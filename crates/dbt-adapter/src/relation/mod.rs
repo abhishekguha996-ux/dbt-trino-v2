@@ -41,6 +41,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_render_with_run_filter_trino_uses_timestamp_literals() {
+        let relation = Relation::new(
+            AdapterType::Trino,
+            None::<String>,
+            None::<String>,
+            "events".to_owned(),
+        )
+        .with_quoting(ResolvedQuoting::disabled());
+        let start = NaiveDate::from_ymd_opt(2024, 7, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let end = NaiveDate::from_ymd_opt(2024, 7, 2)
+            .unwrap()
+            .and_hms_opt(6, 30, 0)
+            .unwrap();
+        let run_filter = RunFilter {
+            empty: false,
+            sample: Some(Sample {
+                start: Some(DateTime::<Utc>::from_naive_utc_and_offset(start, Utc)),
+                end: Some(DateTime::<Utc>::from_naive_utc_and_offset(end, Utc)),
+            }),
+        };
+        let result = relation.render_with_run_filter(&run_filter, &Some("event_at".to_string()));
+        assert_eq!(
+            result,
+            "(select * from events where event_at >= TIMESTAMP '2024-07-01 00:00:00 UTC' \
+             and event_at < TIMESTAMP '2024-07-02 06:30:00 UTC')"
+        );
+    }
+
+    #[test]
     fn test_render_with_run_filter_snowflake_adapter() {
         let relation = Relation::new(
             AdapterType::Snowflake,

@@ -219,6 +219,9 @@ pub struct ProjectSeedConfig {
     pub location_root: Option<String>,
     #[serde(rename = "+tblproperties")]
     pub tblproperties: Option<TblProperties>,
+    // Trino (name matches the Python dbt-trino adapter)
+    #[serde(rename = "+properties")]
+    pub properties: Option<IndexMap<String, YmlValue>>,
     #[serde(
         default,
         rename = "+include_full_name_in_path",
@@ -391,6 +394,7 @@ impl TypedRecursiveConfig for ProjectSeedConfig {
             || self.propagate.is_some()
             || self.location_root.is_some()
             || self.tblproperties.is_some()
+            || self.properties.is_some()
             || self.include_full_name_in_path.is_some()
             || self.liquid_clustered_by.is_some()
             || self.auto_liquid_cluster.is_some()
@@ -534,6 +538,11 @@ impl From<ProjectSeedConfig> for SeedConfig {
                 partition_by: config.partition_by,
 
                 partition_by_config: None,
+                view_security: None,
+                on_table_exists: None,
+                sync_nested_columns: None,
+                views_enabled: None,
+                grace_period: None,
 
                 distribute_by_config: None,
 
@@ -566,6 +575,7 @@ impl From<ProjectSeedConfig> for SeedConfig {
                 location_root: config.location_root,
                 use_uniform: None,
                 tblproperties: config.tblproperties,
+                properties: config.properties,
                 include_full_name_in_path: config.include_full_name_in_path,
                 liquid_clustered_by: config.liquid_clustered_by,
                 auto_liquid_cluster: config.auto_liquid_cluster,
@@ -720,6 +730,7 @@ impl From<SeedConfig> for ProjectSeedConfig {
             catalog_name: config.__warehouse_specific_config__.catalog_name,
             location_root: config.__warehouse_specific_config__.location_root,
             tblproperties: config.__warehouse_specific_config__.tblproperties,
+            properties: config.__warehouse_specific_config__.properties,
             include_full_name_in_path: config
                 .__warehouse_specific_config__
                 .include_full_name_in_path,

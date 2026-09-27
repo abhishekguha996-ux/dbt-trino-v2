@@ -129,6 +129,7 @@ impl SemanticCategory {
             | "disable_transactions"
             | "build_catalog_relation"
             | "sync_struct_columns"
+            | "diff_nested_column_types"
             | "resolve_file_format"
             | "get_seed_file_path"
             | "is_uniform"

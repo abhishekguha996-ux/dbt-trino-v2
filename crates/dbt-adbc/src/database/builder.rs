@@ -138,7 +138,11 @@ impl fmt::Debug for Builder {
                     let mut first = true;
                     for (name, value) in uri.query_pairs() {
                         let new_value =
-                            if name == "username" || name == "user" || name == "password" {
+                            // Secrets some drivers only accept as URI parameters.
+                            if matches!(
+                                name.as_ref(),
+                                "username" | "user" | "password" | "accessToken"
+                            ) {
                                 &name
                             } else {
                                 &value
@@ -441,6 +445,17 @@ mod tests {
         assert!(!debug.contains("p/ss"));
         assert!(!debug.contains("query_secret"));
         assert!(!debug.contains("token_secret"));
+    }
+
+    #[test]
+    fn uri_access_token_is_redacted() {
+        let mut builder = Builder::new(Backend::Snowflake);
+        builder
+            .with_parse_uri("https://trino.example:8443?catalog=hive&accessToken=jwt_secret")
+            .unwrap();
+        let debug = format!("{builder:?}");
+        assert!(debug.contains("catalog=hive"));
+        assert!(!debug.contains("jwt_secret"));
     }
 
     #[test]

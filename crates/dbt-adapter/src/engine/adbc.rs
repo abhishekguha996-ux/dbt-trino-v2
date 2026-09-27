@@ -211,6 +211,7 @@ impl AdbcEngine {
         let load_strategy = match (use_cloud_credentials, self.adapter_type) {
             (true, _) => LoadStrategy::Remote,
             (false, AdapterType::DuckDB) => LoadStrategy::SystemThenCdnCache,
+            (false, AdapterType::Trino) => LoadStrategy::System(None),
             (false, _) => LoadStrategy::CdnCache,
         };
 

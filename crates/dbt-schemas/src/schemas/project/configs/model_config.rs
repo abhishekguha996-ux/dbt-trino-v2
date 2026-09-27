@@ -441,6 +441,27 @@ pub struct ProjectModelConfig {
     /// Exasol: advisory PRIMARY KEY column list (name matches the Python dbt-exasol adapter)
     #[serde(rename = "+primary_key_config")]
     pub primary_key_config: Option<StringOrArrayOfStrings>,
+    // Trino (names match the Python dbt-trino adapter)
+    #[serde(rename = "+properties")]
+    pub properties: Option<IndexMap<String, YmlValue>>,
+    #[serde(rename = "+view_security")]
+    pub view_security: Option<String>,
+    #[serde(rename = "+on_table_exists")]
+    pub on_table_exists: Option<String>,
+    #[serde(
+        default,
+        rename = "+sync_nested_columns",
+        deserialize_with = "bool_or_string_bool"
+    )]
+    pub sync_nested_columns: Option<bool>,
+    #[serde(
+        default,
+        rename = "+views_enabled",
+        deserialize_with = "bool_or_string_bool"
+    )]
+    pub views_enabled: Option<bool>,
+    #[serde(rename = "+grace_period")]
+    pub grace_period: Option<String>,
     #[serde(
         default,
         rename = "+partition_expiration_days",
@@ -816,6 +837,12 @@ impl TypedRecursiveConfig for ProjectModelConfig {
             || self.target_lag.is_some()
             || self.target_file_size.is_some()
             || self.tblproperties.is_some()
+            || self.properties.is_some()
+            || self.view_security.is_some()
+            || self.on_table_exists.is_some()
+            || self.sync_nested_columns.is_some()
+            || self.views_enabled.is_some()
+            || self.grace_period.is_some()
             || self.tmp_relation_type.is_some()
             || self.transient.is_some()
             || self.unique_key.is_some()
@@ -1065,6 +1092,12 @@ impl From<ProjectModelConfig> for ModelConfig {
 
                 partition_by: config.partition_by,
                 partition_by_config: config.partition_by_config,
+                properties: config.properties,
+                view_security: config.view_security,
+                on_table_exists: config.on_table_exists,
+                sync_nested_columns: config.sync_nested_columns,
+                views_enabled: config.views_enabled,
+                grace_period: config.grace_period,
                 distribute_by_config: config.distribute_by_config,
                 primary_key_config: config.primary_key_config,
                 cluster_by: config.cluster_by,
@@ -1284,6 +1317,12 @@ impl From<ModelConfig> for ProjectModelConfig {
             secure: config.__warehouse_specific_config__.secure,
             partition_by: config.__warehouse_specific_config__.partition_by,
             partition_by_config: config.__warehouse_specific_config__.partition_by_config,
+            properties: config.__warehouse_specific_config__.properties,
+            view_security: config.__warehouse_specific_config__.view_security,
+            on_table_exists: config.__warehouse_specific_config__.on_table_exists,
+            sync_nested_columns: config.__warehouse_specific_config__.sync_nested_columns,
+            views_enabled: config.__warehouse_specific_config__.views_enabled,
+            grace_period: config.__warehouse_specific_config__.grace_period,
             distribute_by_config: config.__warehouse_specific_config__.distribute_by_config,
             primary_key_config: config.__warehouse_specific_config__.primary_key_config,
             cluster_by: config.__warehouse_specific_config__.cluster_by,

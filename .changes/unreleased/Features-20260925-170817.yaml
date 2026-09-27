@@ -1,0 +1,7 @@
+kind: Features
+body: Add an experimental Trino adapter using a locally installed ADBC driver, with SQL materializations and isolated integration fixtures.
+time: 2026-09-25T17:08:17.170667887Z
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core

@@ -2,7 +2,6 @@ use crate::AdapterEngine;
 use crate::adapter::adapter_impl::AdapterImpl;
 use crate::connection::AdapterConnectionFactory;
 use crate::load_catalogs;
-use crate::relation::do_create_relation;
 use crate::sql_types::{TypeOps, make_arrow_field_v2};
 use crate::{AdapterResult, errors::AsyncAdapterResult, metadata::*, record_batch::RecordBatchExt};
 use arrow_schema::Schema;
@@ -14,7 +13,6 @@ use dbt_adapter_engine::MapReduce;
 use dbt_adbc::{Connection, QueryCtx};
 use dbt_common::cancellation::Cancellable;
 use dbt_common::cancellation::CancellationToken;
-use dbt_schemas::dbt_types::RelationType;
 use dbt_schemas::schemas::dbt_catalogs_v2::{
     CatalogSpecV2View, CatalogType, DbtCatalogsV2View, PhysicalFormatResolver,
 };
@@ -373,42 +371,7 @@ pub fn list_relations(
 
     let batch = engine.execute(None, conn, ctx, &sql, token)?;
 
-    if batch.num_rows() == 0 {
-        return Ok(Vec::new());
-    }
-
-    let table_catalogs = batch.column_values::<StringArray>("table_catalog")?;
-    let table_schemas = batch.column_values::<StringArray>("table_schema")?;
-    let table_names = batch.column_values::<StringArray>("table_name")?;
-    let table_types = batch.column_values::<StringArray>("table_type")?;
-
-    let mut relations = Vec::with_capacity(batch.num_rows());
-    for i in 0..batch.num_rows() {
-        let database = table_catalogs.value(i);
-        let schema = table_schemas.value(i);
-        let name = table_names.value(i);
-        // DuckDB table_type values: "BASE TABLE", "VIEW", "LOCAL TEMPORARY"
-        let relation_type = match table_types.value(i) {
-            "BASE TABLE" => RelationType::Table,
-            "VIEW" => RelationType::View,
-            "LOCAL TEMPORARY" => RelationType::Table,
-            other => RelationType::from_adapter_type(engine.adapter_type(), other),
-        };
-
-        let relation = do_create_relation(
-            engine.adapter_type(),
-            database.to_string(),
-            schema.to_string(),
-            Some(name.to_string()),
-            Some(relation_type),
-            engine.quoting(),
-        )
-        .map_err(|e| AdapterError::new(AdapterErrorKind::Internal, e.to_string()))?;
-
-        relations.push(Arc::from(relation));
-    }
-
-    Ok(relations)
+    generic::relations_from_information_schema(engine, &batch)
 }
 
 /// An external Iceberg REST catalog that DuckDB reaches through an Iceberg REST

@@ -74,7 +74,10 @@ impl SqlLiteralFormatter {
     pub fn format_date(&self, l: PyDate) -> String {
         match self.adapter_type {
             // Exasol: typed DATE literal, independent of NLS_DATE_FORMAT.
-            AdapterType::Exasol => format!("DATE '{}'", l.date.format("%Y-%m-%d")),
+            // Trino: an untyped string is not coerced to DATE on insert.
+            AdapterType::Exasol | AdapterType::Trino => {
+                format!("DATE '{}'", l.date.format("%Y-%m-%d"))
+            }
             _ => format!("'{}'", l.date.format("%Y-%m-%d")),
         }
     }
@@ -85,7 +88,8 @@ impl SqlLiteralFormatter {
             // string would be cast via NLS_TIMESTAMP_FORMAT, which rejects 'T'.
             // TIMESTAMP literals also take no time-zone offset, so tz-aware
             // values are converted to UTC and formatted naive.
-            AdapterType::Exasol => {
+            // Trino: TIMESTAMP literals reject the ISO 'T' separator.
+            AdapterType::Exasol | AdapterType::Trino => {
                 use minijinja_contrib::modules::py_datetime::datetime::DateTimeState;
                 let naive = match &l.state {
                     DateTimeState::Naive(ndt) => *ndt,
@@ -360,6 +364,17 @@ mod tests {
             "expected DATE literal, got {out}"
         );
         assert_eq!(out, "DATE '2024-01-01'");
+    }
+
+    #[test]
+    fn test_trino_format_typed_literals() {
+        let f = SqlLiteralFormatter::new(AdapterType::Trino);
+        assert_eq!(f.format_date(py_date(2024, 1, 1)), "DATE '2024-01-01'");
+        assert_eq!(
+            f.format_datetime(naive_datetime(2024, 1, 1, 8, 0, 0)),
+            "TIMESTAMP '2024-01-01 08:00:00'"
+        );
+        assert_eq!(f.format_str("O'Brien"), "'O''Brien'");
     }
 
     #[test]
