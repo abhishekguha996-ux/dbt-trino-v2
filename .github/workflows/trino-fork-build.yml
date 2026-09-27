@@ -108,7 +108,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME//\//-}-$(git rev-parse --short HEAD)"
+          VERSION="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
           PKG="dbt-trino-v2-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/$PKG/bin" "dist/$PKG/lib" /tmp/driver
           cp "target/${{ matrix.target }}/release/dbt" "dist/$PKG/bin/dbt"
