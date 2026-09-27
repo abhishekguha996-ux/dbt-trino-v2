@@ -403,11 +403,10 @@ impl AdapterImpl {
                         }
                         ClickHouse => Box::new(ClickHouseMetadataAdapter::new(engine))
                             as Box<dyn MetadataAdapter>,
-                        Exasol => Box::new(GenericMetadataAdapter::new(engine))
+                        Exasol | Trino => Box::new(GenericMetadataAdapter::new(engine))
                             as Box<dyn MetadataAdapter>,
                         Starburst => todo!("Starburst"),
                         Athena => todo!("Athena"),
-                        Trino => todo!("Trino"),
                         Datafusion => todo!("Datafusion"),
                         Dremio => todo!("Dremio"),
                         Oracle => todo!("Oracle"),
@@ -1298,7 +1297,9 @@ impl AdapterImpl {
                 Exasol => "name",
                 Starburst => todo!("Starburst"),
                 Athena => todo!("Athena"),
-                Trino => todo!("Trino"),
+                // trino__list_schemas selects information_schema.schemata.schema_name
+                // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/include/trino/macros/adapters.sql#L287-L294
+                Trino => "schema_name",
                 Datafusion => todo!("Datafusion"),
                 Dremio => todo!("Dremio"),
                 Oracle => todo!("Oracle"),
@@ -1913,10 +1914,13 @@ impl AdapterImpl {
 
         // All-platform features.
         if name == "transactions" {
-            if self.adapter_type() == DuckDB && duckdb_is_motherduck(self.engine().get_config()) {
-                return Ok(Some(false));
-            }
-            return Ok(Some(true));
+            return Ok(Some(match self.adapter_type() {
+                // dbt-trino runs every statement in autocommit mode (IsolationLevel.AUTOCOMMIT)
+                // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/connections.py#L720
+                Trino => false,
+                DuckDB => !duckdb_is_motherduck(self.engine().get_config()),
+                _ => true,
+            }));
         }
 
         // platform-specific features.
@@ -4183,9 +4187,14 @@ impl AdapterImpl {
             Impl(Fabric, engine) => {
                 fabric::list_relations(engine.as_ref(), query_ctx, conn, db_schema, token)
             }
+            // Mirrors trino__list_relations_without_caching, including materialized views
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/include/trino/macros/adapters.sql#L34-L54
+            Impl(Trino, engine) => {
+                generic::list_relations(engine.as_ref(), query_ctx, conn, db_schema, token)
+            }
             Impl(
                 adapter_type @ (Postgres | Salesforce | ClickHouse | Exasol | Starburst | Athena
-                | Trino | Datafusion | Dremio | Oracle),
+                | Datafusion | Dremio | Oracle),
                 _,
             ) => {
                 let err = AdapterError::new(

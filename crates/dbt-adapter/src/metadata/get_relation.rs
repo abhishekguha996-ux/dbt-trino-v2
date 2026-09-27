@@ -69,9 +69,11 @@ pub fn get_relation(
         AdapterType::Spark => {
             spark_get_relation(adapter, state, ctx, conn, schema, identifier, token)
         }
-        AdapterType::DuckDB | AdapterType::LakeCompute => duckdb_get_relation(
-            adapter, state, ctx, conn, database, schema, identifier, token,
-        ),
+        AdapterType::DuckDB | AdapterType::LakeCompute | AdapterType::Trino => {
+            information_schema_get_relation(
+                adapter, state, ctx, conn, database, schema, identifier, token,
+            )
+        }
         AdapterType::Fabric => fabric_get_relation(
             adapter, state, ctx, conn, database, schema, identifier, token,
         ),
@@ -83,7 +85,6 @@ pub fn get_relation(
         ),
         AdapterType::Starburst => todo!("Starburst"),
         AdapterType::Athena => todo!("Athena"),
-        AdapterType::Trino => todo!("Trino"),
         AdapterType::Dremio => todo!("Dremio"),
         AdapterType::Oracle => todo!("Oracle"),
         AdapterType::Datafusion => todo!("Datafusion"),
@@ -886,7 +887,7 @@ fn salesforce_get_relation(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn duckdb_get_relation(
+fn information_schema_get_relation(
     adapter: &AdapterImpl,
     state: &State,
     ctx: &QueryCtx,
@@ -910,10 +911,15 @@ fn duckdb_get_relation(
         identifier.to_lowercase()
     };
 
-    if !schema.is_empty()
-        && !identifier.is_empty()
-        && crate::metadata::duckdb::is_duckdb_v2_external_iceberg_catalog_database(database)
-    {
+    let duckdb_external_iceberg = match adapter.adapter_type() {
+        AdapterType::DuckDB | AdapterType::LakeCompute => {
+            !schema.is_empty()
+                && !identifier.is_empty()
+                && crate::metadata::duckdb::is_duckdb_v2_external_iceberg_catalog_database(database)
+        }
+        _ => false,
+    };
+    if duckdb_external_iceberg {
         // DuckDB's information_schema can omit or misreport Iceberg REST
         // attached-catalog tables. A targeted DESCRIBE is the narrow fallback:
         // it reuses the normal relation construction after proving the table
@@ -951,16 +957,33 @@ fn duckdb_get_relation(
 
     // Query INFORMATION_SCHEMA.TABLES for relation metadata
     // DuckDB's table_type values: BASE TABLE, VIEW, LOCAL TEMPORARY
-    let sql = format!(
-        r#"
+    let (sql, type_column) = match adapter.adapter_type() {
+        AdapterType::Trino => (
+            crate::metadata::generic::information_schema_tables_sql(
+                AdapterType::Trino,
+                database,
+                &query_schema,
+                Some(&query_identifier),
+            ),
+            "table_type",
+        ),
+        _ => (
+            format!(
+                r#"
             SELECT table_type as type
             FROM information_schema.tables
             WHERE table_schema = '{}'
               AND table_name = '{}'
         "#,
-        dbt_adapter_sql::ident::escape_string_literal(&query_schema, AdapterType::DuckDB),
-        dbt_adapter_sql::ident::escape_string_literal(&query_identifier, AdapterType::DuckDB),
-    );
+                dbt_adapter_sql::ident::escape_string_literal(&query_schema, AdapterType::DuckDB),
+                dbt_adapter_sql::ident::escape_string_literal(
+                    &query_identifier,
+                    AdapterType::DuckDB
+                ),
+            ),
+            "type",
+        ),
+    };
 
     let batch = adapter
         .engine()
@@ -969,7 +992,7 @@ fn duckdb_get_relation(
         return Ok(None);
     }
 
-    let string_array = batch.column_values::<StringArray>("type")?;
+    let string_array = batch.column_values::<StringArray>(type_column)?;
 
     if string_array.len() != 1 {
         return Err(AdapterError::new(
@@ -982,6 +1005,7 @@ fn duckdb_get_relation(
     let relation_type = match string_array.value(0) {
         "BASE TABLE" => Some(RelationType::Table),
         "VIEW" => Some(RelationType::View),
+        "MATERIALIZED VIEW" => Some(RelationType::MaterializedView),
         "LOCAL TEMPORARY" => Some(RelationType::Table), // Treat temp tables as tables
         _ => return invalid_value!("Unsupported relation type {}", string_array.value(0)),
     };
