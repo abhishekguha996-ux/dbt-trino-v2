@@ -188,6 +188,7 @@ impl TypeOps for DefaultTypeOps {
             Postgres | Salesforce => postgres::try_format_type(data_type, nullable, out),
             Fabric => fabric::try_format_type(data_type, nullable, out),
             ClickHouse => clickhouse::try_format_type(data_type, nullable, out),
+            Trino => self.format_sql_type(SqlType::from_arrow_type(adapter_type, data_type), out),
             _ => {
                 // Logical types without native Arrow encodings use
                 // FixedSizeList(field, 1). Render the logical field name (for
@@ -565,7 +566,7 @@ pub const fn get_field_sql_type_metadata_key(adapter_type: AdapterType) -> &'sta
         AdapterType::Exasol => "DATA_TYPE",
         AdapterType::Starburst => todo!(),
         AdapterType::Athena => todo!(),
-        AdapterType::Trino => todo!(),
+        AdapterType::Trino => "sql.database_type_name",
         AdapterType::Dremio => todo!(),
         AdapterType::Oracle => todo!(),
         AdapterType::Datafusion => todo!(),
@@ -629,6 +630,7 @@ impl SdfSchemaBuilder {
         let comment = self.field_comment(field);
         let original_type_text = match self.adapter_type {
             AdapterType::Bigquery => bigquery::field_to_string(field),
+            AdapterType::Trino => trino::field_to_string(field),
             _ => original_type_string(self.adapter_type, field),
         };
         // XXX: We should probably error here rather than approximate
@@ -1041,6 +1043,47 @@ pub mod fabric {
     }
 }
 
+mod trino {
+    use std::borrow::Cow;
+
+    use arrow_schema::{DataType, Field};
+    use dbt_adapter_core::AdapterType;
+
+    use crate::sql_types::original_type_string;
+
+    /// The `sql.length` of `varchar` without a length (the largest length Trino accepts).
+    const UNBOUNDED_VARCHAR_LENGTH: &str = "2147483647";
+
+    /// The SQL type of a field read through the adbc-trino driver, parameters included.
+    ///
+    /// The driver reports only the base type name (`DECIMAL`, `VARCHAR`, `TIMESTAMP`, ...) in
+    /// `sql.database_type_name`. The parameters come in the Arrow type (decimal precision and
+    /// scale) and in the `sql.length` and `sql.fractional_seconds_precision` metadata keys:
+    /// https://github.com/adbc-drivers/driverbase-go/blob/31a68ee937968be866d890eb9d75b33dd6fe7c76/sqlwrapper/typeconverter.go#L34-L39
+    pub fn field_to_string(field: &Field) -> Option<Cow<'_, str>> {
+        let type_name = original_type_string(AdapterType::Trino, field)?;
+        let metadata = |key: &str| field.metadata().get(key).map(String::as_str);
+        let with_parameters = match (type_name.as_ref(), field.data_type()) {
+            (
+                "DECIMAL",
+                DataType::Decimal32(precision, scale)
+                | DataType::Decimal64(precision, scale)
+                | DataType::Decimal128(precision, scale)
+                | DataType::Decimal256(precision, scale),
+            ) => Some(format!("DECIMAL({precision}, {scale})")),
+            ("VARCHAR" | "CHAR", _) => metadata("sql.length")
+                .filter(|length| *length != UNBOUNDED_VARCHAR_LENGTH)
+                .map(|length| format!("{type_name}({length})")),
+            ("TIME" | "TIMESTAMP", _) => metadata("sql.fractional_seconds_precision")
+                .map(|precision| format!("{type_name}({precision})")),
+            ("TIMESTAMP WITH TIME ZONE", _) => metadata("sql.fractional_seconds_precision")
+                .map(|precision| format!("TIMESTAMP({precision}) WITH TIME ZONE")),
+            _ => None,
+        };
+        Some(with_parameters.map_or(type_name, Cow::Owned))
+    }
+}
+
 pub const fn max_varchar_size(adapter_type: AdapterType) -> Option<usize> {
     use AdapterType::*;
     match adapter_type {
@@ -1267,6 +1310,10 @@ pub fn numeric_precision_scale(
                     format!("Decimal precision '{}' exceed 38 place limit", *precision),
                 ));
             }
+            Some((*precision, Some(*scale)))
+        }
+        // adbc-trino returns the narrowest decimal type, so decimal(10, 2) arrives as Decimal64.
+        (Trino, DataType::Decimal32(precision, scale) | DataType::Decimal64(precision, scale)) => {
             Some((*precision, Some(*scale)))
         }
 
@@ -1687,5 +1734,171 @@ mod tests {
         );
         assert_eq!(convert_type(&DataType::Boolean, Spark), "boolean");
         assert_eq!(convert_type(&DataType::Date64, Spark), "date");
+    }
+
+    /// A field as adbc-trino returns it: the base type name plus parameter metadata.
+    fn trino_driver_field(data_type: DataType, type_name: &str, params: &[(&str, &str)]) -> Field {
+        let metadata = params
+            .iter()
+            .chain(&[("sql.database_type_name", type_name)])
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        Field::new("c", data_type, true).with_metadata(metadata)
+    }
+
+    #[test]
+    fn test_trino_sdf_schema_keeps_type_parameters() {
+        let type_ops = DefaultTypeOps::new(Trino);
+        for (field, expected_type_text, expected_data_type) in [
+            (
+                trino_driver_field(
+                    DataType::Decimal64(10, 2),
+                    "DECIMAL",
+                    &[("sql.precision", "10"), ("sql.scale", "2")],
+                ),
+                "DECIMAL(10, 2)",
+                DataType::Decimal128(10, 2),
+            ),
+            (
+                trino_driver_field(DataType::Utf8, "VARCHAR", &[("sql.length", "12")]),
+                "VARCHAR(12)",
+                DataType::Utf8,
+            ),
+            (
+                trino_driver_field(DataType::Utf8, "VARCHAR", &[("sql.length", "2147483647")]),
+                "VARCHAR",
+                DataType::Utf8,
+            ),
+            (
+                trino_driver_field(DataType::Utf8, "CHAR", &[("sql.length", "3")]),
+                "CHAR(3)",
+                DataType::Utf8,
+            ),
+            (
+                trino_driver_field(DataType::Int8, "TINYINT", &[]),
+                "TINYINT",
+                DataType::Int8,
+            ),
+            (
+                trino_driver_field(
+                    DataType::Time32(TimeUnit::Millisecond),
+                    "TIME",
+                    &[("sql.fractional_seconds_precision", "3")],
+                ),
+                "TIME(3)",
+                DataType::Time32(TimeUnit::Millisecond),
+            ),
+            (
+                trino_driver_field(
+                    DataType::Timestamp(TimeUnit::Microsecond, None),
+                    "TIMESTAMP",
+                    &[("sql.fractional_seconds_precision", "6")],
+                ),
+                "TIMESTAMP(6)",
+                DataType::Timestamp(TimeUnit::Microsecond, None),
+            ),
+        ] {
+            let sdf =
+                arrow_schema_to_sdf_schema(Arc::new(Schema::new(vec![field])), &type_ops).unwrap();
+            let sdf_field = sdf.inner().field(0);
+            assert_eq!(
+                type_ops
+                    .get_original_sql_type_from_field(sdf_field)
+                    .unwrap(),
+                expected_type_text
+            );
+            assert_eq!(sdf_field.data_type(), &expected_data_type);
+        }
+
+        let with_time_zone = trino_driver_field(
+            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+            "TIMESTAMP WITH TIME ZONE",
+            &[("sql.fractional_seconds_precision", "0")],
+        );
+        let sdf =
+            arrow_schema_to_sdf_schema(Arc::new(Schema::new(vec![with_time_zone])), &type_ops)
+                .unwrap();
+        assert_eq!(
+            type_ops
+                .get_original_sql_type_from_field(sdf.inner().field(0))
+                .unwrap(),
+            "TIMESTAMP(0) WITH TIME ZONE"
+        );
+    }
+
+    // Trino allows TIME(p) and TIMESTAMP(p) up to p = 12, finer than Arrow's nanoseconds.
+    #[test]
+    fn test_trino_picosecond_precision_uses_nanoseconds() {
+        let type_ops = DefaultTypeOps::new(Trino);
+        let nanoseconds_with_offset = DataType::Struct(
+            vec![
+                Field::new(
+                    "timestamp",
+                    DataType::Timestamp(TimeUnit::Nanosecond, Some("UTC".into())),
+                    false,
+                ),
+                Field::new("offset_minutes", DataType::Int16, false),
+            ]
+            .into(),
+        );
+        for (driver_type, type_name, type_text, data_type) in [
+            (
+                DataType::Timestamp(TimeUnit::Nanosecond, None),
+                "TIMESTAMP",
+                "TIMESTAMP(12)",
+                DataType::Timestamp(TimeUnit::Nanosecond, None),
+            ),
+            (
+                DataType::Timestamp(TimeUnit::Nanosecond, Some("UTC".into())),
+                "TIMESTAMP WITH TIME ZONE",
+                "TIMESTAMP(12) WITH TIME ZONE",
+                nanoseconds_with_offset,
+            ),
+            (
+                DataType::Time64(TimeUnit::Nanosecond),
+                "TIME",
+                "TIME(12)",
+                DataType::Time64(TimeUnit::Nanosecond),
+            ),
+        ] {
+            // The schema of a zero-row probe, as for unit-test `given` inputs
+            let field = trino_driver_field(
+                driver_type,
+                type_name,
+                &[("sql.fractional_seconds_precision", "12")],
+            );
+            let sdf =
+                arrow_schema_to_sdf_schema(Arc::new(Schema::new(vec![field])), &type_ops).unwrap();
+            let sdf_field = sdf.inner().field(0);
+            assert_eq!(
+                type_ops
+                    .get_original_sql_type_from_field(sdf_field)
+                    .unwrap(),
+                type_text
+            );
+            assert_eq!(sdf_field.data_type(), &data_type);
+
+            // A column type as information_schema spells it, as for unit-test `expect` rows
+            let column_type = type_text.to_lowercase();
+            let field =
+                make_arrow_field(&type_ops, "c".to_string(), &column_type, None, None).unwrap();
+            assert_eq!(
+                type_ops.get_original_sql_type_from_field(&field).unwrap(),
+                column_type
+            );
+            assert_eq!(field.data_type(), &data_type);
+        }
+    }
+
+    #[test]
+    fn test_trino_numeric_precision_scale_of_narrow_decimals() {
+        assert_eq!(
+            numeric_precision_scale(Trino, &DataType::Decimal32(5, 0)).unwrap(),
+            Some((5, Some(0)))
+        );
+        assert_eq!(
+            numeric_precision_scale(Trino, &DataType::Decimal64(10, 2)).unwrap(),
+            Some((10, Some(2)))
+        );
     }
 }

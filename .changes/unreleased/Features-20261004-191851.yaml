@@ -1,0 +1,7 @@
+kind: Features
+body: '[Trino] Relations, columns, SQL types and literals: relation names match case-insensitively, and unit-test fixtures keep Trino types (including timestamp with time zone and uuid)'
+time: 2026-10-04T19:18:51.691549-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core

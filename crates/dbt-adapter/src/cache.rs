@@ -850,6 +850,41 @@ mod tests {
         );
     }
 
+    /// Trino stores catalog, schema and table names in lowercase even when dbt quotes them,
+    /// so a quoted mixed-case relation must find what `information_schema` lists for it.
+    #[test]
+    fn test_trino_quoted_mixed_case_relation_matches_listed_relation() {
+        use crate::metadata::CatalogAndSchema;
+        use crate::relation::do_create_relation;
+
+        let cache = RelationCache::default();
+        let relation = |database: &str, schema: &str, identifier: &str| -> Arc<dyn BaseRelation> {
+            do_create_relation(
+                AdapterType::Trino,
+                database.to_string(),
+                schema.to_string(),
+                Some(identifier.to_string()),
+                None,
+                DEFAULT_RESOLVED_QUOTING,
+            )
+            .unwrap()
+            .into()
+        };
+        let user_relation = relation("Iceberg", "Staging", "MyTable");
+        let listed_relation = relation("iceberg", "staging", "mytable");
+
+        assert_eq!(
+            CatalogAndSchema::from(user_relation.as_ref()),
+            CatalogAndSchema::from(listed_relation.as_ref())
+        );
+        cache.insert_schema(
+            CatalogAndSchema::from(user_relation.as_ref()),
+            vec![listed_relation],
+        );
+        assert!(cache.contains_full_schema_for_relation(user_relation.as_ref()));
+        assert!(cache.contains_relation(user_relation.as_ref()));
+    }
+
     #[test]
     fn test_project_has_functions_defaults_false_and_is_settable() {
         let cache = RelationCache::default();

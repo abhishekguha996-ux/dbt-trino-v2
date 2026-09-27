@@ -1543,6 +1543,32 @@ mod tests {
         }
     }
 
+    mod trino {
+        use super::*;
+
+        #[test]
+        fn test_identity_is_lowercase_even_when_quoted() {
+            let relation = Relation::new(
+                AdapterType::Trino,
+                "Iceberg".to_string(),
+                "Staging".to_string(),
+                "MyTable".to_string(),
+            )
+            .with_quoting(Policy::enabled());
+            assert_eq!(
+                relation.semantic_fqn(),
+                "\"iceberg\".\"staging\".\"mytable\""
+            );
+            assert_eq!(relation.database_as_resolved_str().unwrap(), "iceberg");
+            assert_eq!(relation.schema_as_resolved_str().unwrap(), "staging");
+            assert_eq!(relation.identifier_as_resolved_str().unwrap(), "mytable");
+            assert_eq!(
+                relation.render_self_as_str(),
+                "\"Iceberg\".\"Staging\".\"MyTable\""
+            );
+        }
+    }
+
     /// This module tests all the fallback behaviors that are not adapter-type specific
     mod generic {
         use super::*;

@@ -179,6 +179,7 @@ pub fn infer_seed_column_name_strategy(
             | AdapterType::Salesforce
             | AdapterType::Redshift
             | AdapterType::DuckDB
+            | AdapterType::Trino
             | AdapterType::LakeCompute,
         ) => InferColumnNameStrategy::Lowercase,
         (false, AdapterType::Snowflake) => InferColumnNameStrategy::Uppercase,
@@ -193,7 +194,6 @@ pub fn infer_seed_column_name_strategy(
         (false, AdapterType::Exasol) => InferColumnNameStrategy::Uppercase,
         (false, AdapterType::Starburst) => todo!("Starburst"),
         (false, AdapterType::Athena) => todo!("Athena"),
-        (false, AdapterType::Trino) => todo!("Trino"),
         (false, AdapterType::Dremio) => todo!("Dremio"),
         (false, AdapterType::Oracle) => todo!("Oracle"),
         (false, AdapterType::Datafusion) => todo!("Datafusion"),

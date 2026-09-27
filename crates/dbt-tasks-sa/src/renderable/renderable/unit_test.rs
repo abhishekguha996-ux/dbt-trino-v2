@@ -14,9 +14,10 @@ use dbt_adapter::formatter::SqlLiteralFormatter;
 use dbt_adapter::metadata::BIGQUERY_PSEUDOCOLUMNS;
 use dbt_adapter::relation::{RelationObject, create_relation_from_node};
 use dbt_adapter::sql_types::DefaultTypeOps;
-use dbt_adapter::sql_types::{TypeOps, make_arrow_field};
+use dbt_adapter::sql_types::{SdfSchema, TypeOps, arrow_schema_to_sdf_schema, make_arrow_field};
 use dbt_adapter::{Adapter, Column};
 use dbt_adapter_core::{AdapterType, ExecutionPhase, quote_char};
+use dbt_agate::AgateTable;
 use dbt_common::cancellation::Cancellable;
 use dbt_common::collections::DashMap;
 use dbt_common::constants::DBT_CTE_PREFIX;
@@ -554,6 +555,33 @@ fn columns_to_schema(
     Ok(Arc::new(Schema::new(fields)))
 }
 
+/// The schema of a schema probe's result table, with the column types that the driver reports
+/// in the field metadata: for Trino, the type parameters (DECIMAL(10, 2), CHAR(2), ...) that
+/// `Column`s drop.
+fn result_table_to_schema(
+    type_ops: &dyn TypeOps,
+    result: Value,
+    unique_id: &str,
+) -> FsResult<SchemaRef> {
+    let table = result.downcast_object::<AgateTable>().ok_or_else(|| {
+        fs_err!(
+            ErrorCode::Unexpected,
+            "Internal error: the schema probe of unit test {} returned no table",
+            unique_id
+        )
+    })?;
+    arrow_schema_to_sdf_schema(table.original_record_batch().schema(), type_ops)
+        .map(SdfSchema::into_inner)
+        .map_err(|e| {
+            fs_err!(
+                ErrorCode::from(e.kind()),
+                "Failed to read the column types of unit test {}: {}",
+                unique_id,
+                e
+            )
+        })
+}
+
 fn build_unit_test_schema_probe(
     adapter_type: AdapterType,
     type_ops: &dyn TypeOps,
@@ -647,7 +675,23 @@ fn infer_unit_test_expected_schema(
     // rendered for the default's dialect.
     // ClickHouse: the probe's session-scoped TEMPORARY table is invisible to
     // introspection (never in system.columns), so infer via the query schema.
-    let materialization = if unit_test.node_adapter() == AdapterType::DuckDB
+    // Trino: get_column_schema_from_query keeps only the base type names (DECIMAL,
+    // CHAR, ...), as dbt-trino's data_type_code_to_name does. The query-schema path
+    // reads the expected types from the Arrow schema of the probe result instead, whose
+    // field metadata keeps the type parameters (as for `given` inputs).
+    let from_result_schema = match unit_test.node_adapter() {
+        AdapterType::Trino => options.use_query_schema_fallback,
+        _ => false,
+    };
+    let materialization = if from_result_schema {
+        r#"
+  {% macro get_expected_columns(sql, select_sql_header) -%}
+      {%- if select_sql_header is not none -%}
+          {%- set select_sql_header = render(select_sql_header) -%}
+      {%- endif -%}
+      {{ return(run_query(get_empty_subquery_sql(sql, select_sql_header))) }}
+  {%- endmacro %}"#
+    } else if unit_test.node_adapter() == AdapterType::DuckDB
         || unit_test.node_adapter() == AdapterType::ClickHouse
         || options.use_query_schema_fallback
     {
@@ -823,6 +867,14 @@ fn infer_unit_test_expected_schema(
                 e
             )
         })?;
+
+        if from_result_schema {
+            return result_table_to_schema(
+                adapter.engine().type_ops().as_ref(),
+                columns_as_value,
+                unique_id,
+            );
+        }
 
         let columns = Column::vec_from_jinja_value(unit_test.node_adapter(), columns_as_value)
             .map_err(|e| {
@@ -1949,6 +2001,18 @@ fn is_supported_type(adapter_type: AdapterType, ref_type: &DataType) -> bool {
                 // DuckDB distinct types are wrapped as FixedSizeList(Field(name, ..), 1)
                 matches!(ref_type, DataType::FixedSizeList(_, 1))
             }
+            AdapterType::Trino => match ref_type {
+                // UUID
+                DataType::FixedSizeBinary(16) => true,
+                // TIMESTAMP WITH TIME ZONE, as `SqlType::pick_best_arrow_type` encodes it: the
+                // UTC instant and the offset in minutes
+                DataType::Struct(fields) => {
+                    fields.len() == 2
+                        && fields[0].name() == "timestamp"
+                        && fields[1].name() == "offset_minutes"
+                }
+                _ => false,
+            },
             _ => false,
         }
 }
@@ -2143,7 +2207,14 @@ fn yml_value_to_sql_literal(
         // A date/timestamp fixture is rendered in its canonical YAML form as a
         // string literal; the fixture builder wraps it in a cast to the
         // column's declared type, same as a quoted string fixture.
-        YmlValue::Timestamp(t, _) => Ok(literal_formatter.format_unit_test_str(&t.to_string())),
+        YmlValue::Timestamp(t, _) => {
+            let timestamp = match adapter_type {
+                // Trino rejects the 'T' separator when it casts a string to a timestamp.
+                AdapterType::Trino => t.to_string().replacen('T', " ", 1),
+                _ => t.to_string(),
+            };
+            Ok(literal_formatter.format_unit_test_str(&timestamp))
+        }
         // A string fixture for a type that cannot be produced by casting a
         // string literal (e.g. BigQuery STRUCT/GEOGRAPHY) is a SQL expression
         // that must be injected verbatim. See dbt-labs/dbt-core#14625.
@@ -2175,17 +2246,28 @@ fn columns_to_formatted_types<'a>(
         .fields()
         .iter()
         .map(|f| {
-            let mut formatted = String::new();
-            type_ops
-                .format_arrow_type_as_sql(f.data_type(), f.is_nullable(), &mut formatted)
-                .map_err(|e| {
-                    fs_err!(
-                        ErrorCode::InvalidConfig,
-                        "Failed to format type {:?}: {}",
-                        f.data_type(),
-                        e
-                    )
-                })?;
+            let formatted = match type_ops.adapter_type() {
+                // Cast to the column's own SQL type, as dbt-core's `get_fixture_sql` does with
+                // `column.data_type`: Arrow types cannot carry varchar(n) and char(n) lengths.
+                // https://github.com/dbt-labs/dbt-adapters/blob/60fc903f705f447a7b58d0df6b33d7be7cd00690/dbt-adapters/src/dbt/include/global_project/macros/unit_test_sql/get_fixture_sql.sql
+                AdapterType::Trino => type_ops
+                    .get_original_sql_type_from_field(f)
+                    .map(Cow::into_owned),
+                _ => {
+                    let mut formatted = String::new();
+                    type_ops
+                        .format_arrow_type_as_sql(f.data_type(), f.is_nullable(), &mut formatted)
+                        .map(|()| formatted)
+                }
+            }
+            .map_err(|e| {
+                fs_err!(
+                    ErrorCode::InvalidConfig,
+                    "Failed to format type {:?}: {}",
+                    f.data_type(),
+                    e
+                )
+            })?;
             Ok((f.name(), f.data_type(), formatted))
         })
         .collect::<FsResult<Vec<_>>>()
@@ -2832,6 +2914,31 @@ mod tests {
             assert_eq!(literal, expected, "for authored value {authored}");
         }
     }
+
+    #[test]
+    fn test_trino_timestamp_fixture_uses_space_separator() {
+        let cases = [
+            ("2020-01-01", "'2020-01-01'"),
+            ("2013-11-03 00:00:00", "'2013-11-03 00:00:00'"),
+            ("2013-11-03 00:00:00-0", "'2013-11-03 00:00:00Z'"),
+            (
+                "2020-01-01T10:30:00.123+05:00",
+                "'2020-01-01 10:30:00.123+05:00'",
+            ),
+        ];
+        for (authored, expected) in cases {
+            let ts = dbt_yaml::Timestamp::parse(authored).expect("valid timestamp");
+            let literal = yml_value_to_sql_literal(
+                AdapterType::Trino,
+                &DefaultTypeOps::new(AdapterType::Trino),
+                YmlValue::timestamp(ts),
+                &DataType::Timestamp(TimeUnit::Millisecond, None),
+            )
+            .expect("timestamp fixture should render as a string literal");
+            assert_eq!(literal, expected, "for authored value {authored}");
+        }
+    }
+
     #[test]
     fn test_parse_csv_rows_preserves_non_empty_scalar_text_and_nulls_empty_cells() {
         let rows =
@@ -3397,6 +3504,199 @@ mod tests {
             );
             assert_contains!(result, "CAST([] AS ARRAY<TIMESTAMP>) AS items");
         }
+    }
+
+    #[test]
+    fn test_create_values_trino_casts_to_the_column_types() {
+        let type_ops = DefaultTypeOps::new(AdapterType::Trino);
+        let ts =
+            |authored: &str| YmlValue::timestamp(dbt_yaml::Timestamp::parse(authored).unwrap());
+
+        // `given` inputs: the schema of a zero-row probe, as the adbc-trino driver reports it.
+        let driver_field = |name: &str, data_type: DataType, metadata: &[(&str, &str)]| {
+            Field::new(name, data_type, true).with_metadata(
+                metadata
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            )
+        };
+        let probe_schema = Arc::new(Schema::new(vec![
+            driver_field(
+                "amount",
+                DataType::Decimal64(10, 2),
+                &[
+                    ("sql.database_type_name", "DECIMAL"),
+                    ("sql.precision", "10"),
+                    ("sql.scale", "2"),
+                ],
+            ),
+            driver_field(
+                "code",
+                DataType::Utf8,
+                &[("sql.database_type_name", "VARCHAR"), ("sql.length", "12")],
+            ),
+            driver_field(
+                "flag",
+                DataType::Utf8,
+                &[("sql.database_type_name", "CHAR"), ("sql.length", "3")],
+            ),
+            driver_field(
+                "tiny",
+                DataType::Int8,
+                &[("sql.database_type_name", "TINYINT")],
+            ),
+            driver_field(
+                "at",
+                DataType::Time32(TimeUnit::Millisecond),
+                &[
+                    ("sql.database_type_name", "TIME"),
+                    ("sql.fractional_seconds_precision", "3"),
+                ],
+            ),
+            driver_field(
+                "ts",
+                DataType::Timestamp(TimeUnit::Millisecond, None),
+                &[
+                    ("sql.database_type_name", "TIMESTAMP"),
+                    ("sql.fractional_seconds_precision", "3"),
+                ],
+            ),
+            driver_field(
+                "ts_tz",
+                DataType::Timestamp(TimeUnit::Second, Some("UTC".into())),
+                &[
+                    ("sql.database_type_name", "TIMESTAMP WITH TIME ZONE"),
+                    ("sql.fractional_seconds_precision", "0"),
+                ],
+            ),
+            driver_field(
+                "id",
+                DataType::FixedSizeBinary(16),
+                &[
+                    ("sql.database_type_name", "UUID"),
+                    ("ARROW:extension:name", "arrow.uuid"),
+                ],
+            ),
+        ]));
+        let given_schema = arrow_schema_to_sdf_schema(probe_schema, &type_ops)
+            .unwrap()
+            .into_inner();
+        let given_rows = vec![BTreeMap::from([
+            ("amount".to_string(), YmlValue::number(12.34.into())),
+            ("code".to_string(), YmlValue::string("abc".to_string())),
+            ("flag".to_string(), YmlValue::string("x".to_string())),
+            ("tiny".to_string(), YmlValue::number(1.into())),
+            (
+                "at".to_string(),
+                YmlValue::string("12:34:56.789".to_string()),
+            ),
+            ("ts".to_string(), ts("2013-11-03 00:00:00")),
+            ("ts_tz".to_string(), ts("2013-11-03 00:00:00-0")),
+            (
+                "id".to_string(),
+                YmlValue::string("12151fd2-7586-11e9-8f9e-2a86e4085a59".to_string()),
+            ),
+        ])];
+        let given = create_values(
+            &given_schema,
+            &given_rows,
+            AdapterType::Trino,
+            &type_ops,
+            None,
+            "fixture_input",
+            true,
+        )
+        .unwrap();
+        for expected in [
+            "CAST(12.34 AS DECIMAL(10, 2)) AS amount",
+            "CAST('abc' AS VARCHAR(12)) AS code",
+            "CAST('x' AS CHAR(3)) AS flag",
+            "CAST(1 AS TINYINT) AS tiny",
+            "CAST('12:34:56.789' AS TIME(3)) AS at",
+            "CAST('2013-11-03 00:00:00' AS TIMESTAMP(3)) AS ts",
+            "CAST('2013-11-03 00:00:00Z' AS TIMESTAMP(0) WITH TIME ZONE) AS ts_tz",
+            "CAST('12151fd2-7586-11e9-8f9e-2a86e4085a59' AS UUID) AS id",
+        ] {
+            assert_contains!(given, expected);
+        }
+
+        // `expect` rows: the model's columns as information_schema spells their types.
+        let expected_schema = Arc::new(Schema::new(
+            [
+                ("amount", "decimal(10,2)"),
+                ("ts_tz", "timestamp(3) with time zone"),
+                ("id", "uuid"),
+            ]
+            .into_iter()
+            .map(|(name, sql_type)| {
+                make_arrow_field(&type_ops, name.to_string(), sql_type, None, None).unwrap()
+            })
+            .collect::<Vec<_>>(),
+        ));
+        let expected_rows = vec![BTreeMap::from([
+            ("amount".to_string(), YmlValue::number(12.34.into())),
+            ("ts_tz".to_string(), ts("2013-11-03 00:00:00-0")),
+        ])];
+        let expected = create_values(
+            &expected_schema,
+            &expected_rows,
+            AdapterType::Trino,
+            &type_ops,
+            None,
+            "fixture_input",
+            false,
+        )
+        .unwrap();
+        assert_contains!(expected, "CAST(12.34 AS decimal(10,2)) AS amount");
+        assert_contains!(
+            expected,
+            "CAST('2013-11-03 00:00:00Z' AS timestamp(3) with time zone) AS ts_tz"
+        );
+        assert_contains!(expected, "CAST(NULL AS uuid) AS id");
+    }
+
+    // `expect` rows of an ephemeral model: the query-schema path reads the zero-row probe
+    // result, as the adbc-trino driver returns it.
+    #[test]
+    fn test_trino_probe_result_schema_keeps_type_parameters() {
+        let type_ops = DefaultTypeOps::new(AdapterType::Trino);
+        let metadata = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let probe = arrow::array::RecordBatch::new_empty(Arc::new(Schema::new(vec![
+            Field::new("amount", DataType::Decimal64(10, 2), true).with_metadata(metadata(&[
+                ("sql.database_type_name", "DECIMAL"),
+                ("sql.precision", "10"),
+                ("sql.scale", "2"),
+            ])),
+            Field::new("code", DataType::Utf8, true).with_metadata(metadata(&[
+                ("sql.database_type_name", "CHAR"),
+                ("sql.length", "2"),
+            ])),
+        ])));
+        let result = Value::from_object(AgateTable::from_record_batch(Arc::new(probe)));
+        let schema = result_table_to_schema(&type_ops, result, "unit_test.p.m.t").unwrap();
+
+        let rows = vec![BTreeMap::from([
+            ("amount".to_string(), YmlValue::number(12.34.into())),
+            ("code".to_string(), YmlValue::string("ab".to_string())),
+        ])];
+        let expected = create_values(
+            &schema,
+            &rows,
+            AdapterType::Trino,
+            &type_ops,
+            None,
+            "fixture_input",
+            false,
+        )
+        .unwrap();
+        assert_contains!(expected, "CAST(12.34 AS DECIMAL(10, 2)) AS amount");
+        assert_contains!(expected, "CAST('ab' AS CHAR(2)) AS code");
     }
 
     #[test]

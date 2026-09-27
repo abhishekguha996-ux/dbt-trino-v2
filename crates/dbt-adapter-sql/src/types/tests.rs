@@ -1803,3 +1803,64 @@ fn duckdb_renders_arrow_timestamp_units_as_its_own_types() {
         "TIMESTAMP WITH TIME ZONE"
     );
 }
+
+#[test]
+fn trino_nested_types_and_escaped_field_names_roundtrip() {
+    for (input, expected) in [
+        ("array(bigint)", "ARRAY(BIGINT)"),
+        (
+            "map(varchar, decimal(18,2))",
+            "MAP(VARCHAR, DECIMAL(18, 2))",
+        ),
+        (
+            "row(\"a\"\"b\" bigint, items array(varchar))",
+            "ROW(\"a\"\"b\" BIGINT, items ARRAY(VARCHAR))",
+        ),
+        ("timestamp(6) with time zone", "TIMESTAMP(6) WITH TIME ZONE"),
+        ("varbinary", "VARBINARY"),
+    ] {
+        let (ty, _) = SqlType::parse(Trino, input).unwrap();
+        assert_eq!(ty.to_string(Trino), expected);
+    }
+}
+
+#[test]
+fn trino_timestamp_with_time_zone_roundtrips_through_arrow() {
+    for input in [
+        "timestamp(0) with time zone",
+        "timestamp(3) with time zone",
+        "timestamp(6) with time zone",
+        "timestamp(9) with time zone",
+    ] {
+        let (ty, _) = SqlType::parse(Trino, input).unwrap();
+        let data_type = ty.pick_best_arrow_type(Trino);
+        assert!(matches!(data_type, DataType::Struct(_)));
+        assert_eq!(
+            SqlType::from_arrow_type(Trino, &data_type).to_string(Trino),
+            ty.to_string(Trino)
+        );
+    }
+}
+
+#[test]
+fn trino_arrow_rendering_preserves_nested_types_and_unsigned_range() {
+    use arrow_schema::{DataType, Field};
+    use std::sync::Arc;
+    let nested = DataType::Struct(
+        vec![Arc::new(Field::new(
+            "field\"name",
+            DataType::List(Arc::new(Field::new("item", DataType::UInt64, true))),
+            false,
+        ))]
+        .into(),
+    );
+    let sql = SqlType::from_arrow_type(Trino, &nested).to_string(Trino);
+    assert_eq!(sql, "ROW(\"field\"\"name\" ARRAY(DECIMAL(20, 0)))");
+    assert!(SqlType::parse(Trino, &sql).is_ok());
+    // Rendering must remain infallible; Trino rejects unsupported precision
+    // instead of silently narrowing it or panicking in Display/to_string.
+    assert_eq!(
+        Numeric(Some((39, Some(0)))).to_string(Trino),
+        "DECIMAL(39, 0)"
+    );
+}

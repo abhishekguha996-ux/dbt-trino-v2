@@ -158,13 +158,7 @@ pub trait BaseRelation: BaseRelationProperties + Any + Send + Sync + fmt::Debug 
     /// given how it's quoted
     fn database_as_resolved_str(&self) -> Result<String, MinijinjaError> {
         match self.database() {
-            Some(val) => {
-                if !self.quote_policy().database {
-                    Ok(self.normalize_component(val))
-                } else {
-                    Ok(val.to_string())
-                }
-            }
+            Some(val) => Ok(self.resolve_component(val, self.quote_policy().database)),
             None => jinja_err!(
                 MinijinjaErrorKind::InvalidOperation,
                 "expect database as string"
@@ -211,13 +205,7 @@ pub trait BaseRelation: BaseRelationProperties + Any + Send + Sync + fmt::Debug 
     /// given how it's quoted
     fn schema_as_resolved_str(&self) -> Result<String, MinijinjaError> {
         match self.schema() {
-            Some(val) => {
-                if !self.quote_policy().schema {
-                    Ok(self.normalize_component(val))
-                } else {
-                    Ok(val.to_string())
-                }
-            }
+            Some(val) => Ok(self.resolve_component(val, self.quote_policy().schema)),
             None => jinja_err!(
                 MinijinjaErrorKind::InvalidOperation,
                 "expect schema as string"
@@ -244,13 +232,7 @@ pub trait BaseRelation: BaseRelationProperties + Any + Send + Sync + fmt::Debug 
     /// given how it's quoted
     fn identifier_as_resolved_str(&self) -> Result<String, MinijinjaError> {
         match self.identifier() {
-            Some(val) => {
-                if !self.quote_policy().identifier {
-                    Ok(self.normalize_component(val))
-                } else {
-                    Ok(val.to_string())
-                }
-            }
+            Some(val) => Ok(self.resolve_component(val, self.quote_policy().identifier)),
             None => jinja_err!(
                 MinijinjaErrorKind::InvalidOperation,
                 "expect identifier as string"
@@ -421,31 +403,20 @@ pub trait BaseRelation: BaseRelationProperties + Any + Send + Sync + fmt::Debug 
     /// ```
     fn semantic_fqn(&self) -> String {
         let mut parts = vec![];
+        let quote_policy = self.quote_policy();
 
         if let Ok(database) = self.database_as_str() {
             if !database.is_empty() {
-                if self.quote_policy().database {
-                    parts.push(self.quoted(&database));
-                } else {
-                    parts.push(self.quoted(&self.normalize_component(&database)));
-                }
+                parts.push(self.quoted(&self.resolve_component(&database, quote_policy.database)));
             }
         }
 
         if let Ok(schema) = self.schema_as_str() {
-            if self.quote_policy().schema {
-                parts.push(self.quoted(&schema));
-            } else {
-                parts.push(self.quoted(&self.normalize_component(&schema)));
-            }
+            parts.push(self.quoted(&self.resolve_component(&schema, quote_policy.schema)));
         }
 
         if let Ok(identifier) = self.identifier_as_str() {
-            if self.quote_policy().identifier {
-                parts.push(self.quoted(&identifier));
-            } else {
-                parts.push(self.quoted(&self.normalize_component(&identifier)));
-            }
+            parts.push(self.quoted(&self.resolve_component(&identifier, quote_policy.identifier)));
         }
 
         parts.join(".")
@@ -461,6 +432,19 @@ pub trait BaseRelation: BaseRelationProperties + Any + Send + Sync + fmt::Debug 
     /// This is how a specific database provider resolve and store an object's name if quoting is not used
     /// For example, they'll be upper case in Snowflake https://docs.snowflake.com/en/sql-reference/identifiers-syntax#unquoted-identifiers
     fn normalize_component(&self, component: &str) -> String;
+
+    /// How the database provider resolves and stores a component, given whether it is quoted.
+    ///
+    /// Quoting preserves the case of a component, except on Trino, which stores catalog, schema
+    /// and table names in lowercase even when they are quoted. dbt-trino matches relations on
+    /// lowered parts for the same reason:
+    /// https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/relation.py#L12-L14
+    fn resolve_component(&self, component: &str, quoted: bool) -> String {
+        match (self.adapter_type(), quoted) {
+            (AdapterType::Trino, _) | (_, false) => self.normalize_component(component),
+            (_, true) => component.to_string(),
+        }
+    }
 
     /// Render this relation as a string.
     fn render_self_as_str(&self) -> String {
@@ -578,24 +562,30 @@ pub trait BaseRelation: BaseRelationProperties + Any + Send + Sync + fmt::Debug 
                 }),
                 end.map(|end| format!("{event_time} < parseDateTime64BestEffort('{end}', 9)")),
             ),
-            // Exasol TIMESTAMP literals take no time-zone offset; strip the
-            // (always +00:00) offset and 'T' from the UTC rfc3339 boundary.
-            AdapterType::Exasol => {
-                let to_exasol_ts = |s: &str| {
+            // Exasol and Trino need TIMESTAMP literals (Trino cannot compare a TIMESTAMP column
+            // with a VARCHAR literal), which take a space separator: strip the 'T' and the
+            // (always +00:00) offset from the UTC rfc3339 boundary. Exasol literals take no
+            // zone; Trino's take a named one.
+            // See: https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/relation.py#L17-L29
+            adapter_type @ (AdapterType::Exasol | AdapterType::Trino) => {
+                let zone = match adapter_type {
+                    AdapterType::Trino => " UTC",
+                    _ => "",
+                };
+                let to_timestamp_literal = |s: &str| {
                     let s = s
                         .trim_end_matches("+00:00")
                         .trim_end_matches('Z')
                         .replace('T', " ");
-                    format!("TIMESTAMP '{s}'")
+                    format!("TIMESTAMP '{s}{zone}'")
                 };
                 (
-                    start.map(|start| format!("{event_time} >= {}", to_exasol_ts(&start))),
-                    end.map(|end| format!("{event_time} < {}", to_exasol_ts(&end))),
+                    start.map(|start| format!("{event_time} >= {}", to_timestamp_literal(&start))),
+                    end.map(|end| format!("{event_time} < {}", to_timestamp_literal(&end))),
                 )
             }
             AdapterType::Starburst => todo!("Starburst"),
             AdapterType::Athena => todo!("Athena"),
-            AdapterType::Trino => todo!("Trino"),
             AdapterType::Datafusion => todo!("Datafusion"),
             AdapterType::Dremio => todo!("Dremio"),
             AdapterType::Oracle => todo!("Oracle"),
