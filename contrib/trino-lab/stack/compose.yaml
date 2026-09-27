@@ -1,0 +1,103 @@
+# Local Trino stack mirroring a production lakehouse: Hive, Iceberg and Delta
+# catalogs on S3-compatible storage (RustFS) with a Hive metastore.
+# Ports bind to 127.0.0.1 only. Start/stop with scripts/stack.py.
+name: dbt-trino-stack
+
+services:
+  trino:
+    image: trinodb/trino:483@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
+    ports:
+      - "127.0.0.1:8080:8080"   # HTTP, unauthenticated (method: none)
+      - "127.0.0.1:8443:8443"   # HTTPS, password + JWT (method: ldap / jwt)
+    volumes:
+      - ./trino/etc:/etc/trino:ro
+      - ./.generated:/etc/trino-generated:ro
+    mem_limit: 4g
+    depends_on:
+      hive-metastore:
+        condition: service_started
+      s3-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/v1/info"]
+      interval: 5s
+      retries: 60
+
+  metastore-db:
+    image: postgres:18@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: metastore
+    mem_limit: 512m
+    volumes:
+      - metastore-db:/var/lib/postgresql
+
+  hive-metastore:
+    image: starburstdata/hive:3.1.3-e.15@sha256:ea7ace1998a7e0bcdaf9c7380ce4c556f754515a1f34b2aef5da3910e9315e6c
+    environment:
+      HIVE_METASTORE_DRIVER: org.postgresql.Driver
+      HIVE_METASTORE_JDBC_URL: jdbc:postgresql://metastore-db:5432/metastore
+      HIVE_METASTORE_USER: hive
+      HIVE_METASTORE_PASSWORD: hive
+      HIVE_METASTORE_WAREHOUSE_DIR: s3://datalake/
+      S3_ENDPOINT: http://s3:9000
+      S3_ACCESS_KEY: dbt_trino_lab
+      S3_SECRET_KEY: dbt_trino_lab_secret
+      S3_PATH_STYLE_ACCESS: "true"
+      REGION: ""
+      GOOGLE_CLOUD_KEY_FILE_PATH: ""
+      AZURE_ADL_CLIENT_ID: ""
+      AZURE_ADL_CREDENTIAL: ""
+      AZURE_ADL_REFRESH_URL: ""
+      AZURE_ABFS_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_ACCESS_KEY: ""
+      AZURE_WASB_STORAGE_ACCOUNT: ""
+      AZURE_ABFS_OAUTH: ""
+      AZURE_ABFS_OAUTH_TOKEN_PROVIDER: ""
+      AZURE_ABFS_OAUTH_CLIENT_ID: ""
+      AZURE_ABFS_OAUTH_SECRET: ""
+      AZURE_ABFS_OAUTH_ENDPOINT: ""
+      AZURE_WASB_ACCESS_KEY: ""
+      HIVE_METASTORE_USERS_IN_ADMIN_ROLE: "admin"
+    mem_limit: 1g
+    depends_on:
+      - metastore-db
+
+  s3:
+    # RustFS: S3-compatible object storage with AWS-like prefix semantics (a renamed Hive
+    # table leaves no phantom "directory" behind, which the Hive metastore would reject).
+    image: rustfs/rustfs:latest@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    environment:
+      RUSTFS_ACCESS_KEY: dbt_trino_lab
+      RUSTFS_SECRET_KEY: dbt_trino_lab_secret
+      RUSTFS_VOLUMES: /data
+      RUSTFS_CONSOLE_ENABLE: "false"
+    volumes:
+      - s3-data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+    mem_limit: 1g
+
+  s3-init:
+    image: amazon/aws-cli:latest@sha256:fdd8d1fcbea9c371678dee5a40df8b178c7a781b4586605756ee28114c97ead6
+    environment:
+      AWS_ACCESS_KEY_ID: dbt_trino_lab
+      AWS_SECRET_ACCESS_KEY: dbt_trino_lab_secret
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 60); do
+          aws --endpoint-url http://s3:9000 s3api list-buckets >/dev/null 2>&1 && break
+          sleep 2
+        done
+        aws --endpoint-url http://s3:9000 s3api head-bucket --bucket datalake 2>/dev/null || \
+          aws --endpoint-url http://s3:9000 s3api create-bucket --bucket datalake
+        aws --endpoint-url http://s3:9000 s3api head-bucket --bucket datalake
+    depends_on:
+      - s3
+
+volumes:
+  metastore-db:
+  s3-data:

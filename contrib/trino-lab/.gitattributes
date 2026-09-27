@@ -1,0 +1,2 @@
+# CSV fixtures retain the CRLF records emitted by Python's standard CSV writer.
+projects/**/*.csv whitespace=cr-at-eol

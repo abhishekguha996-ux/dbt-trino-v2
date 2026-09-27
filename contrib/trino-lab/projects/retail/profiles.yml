@@ -1,0 +1,26 @@
+# Profile for the local stack (python3 scripts/stack.py up). Run from this directory with:
+#   DBT_ALLOW_EXPERIMENTAL_ADAPTERS=yes dbt build --profiles-dir .
+trino_lab:
+  target: iceberg
+  outputs:
+    iceberg:
+      type: trino
+      method: none
+      host: localhost
+      port: 8080
+      user: admin
+      catalog: iceberg
+      schema: lab_retail
+      threads: 4
+      timezone: UTC
+    hive:
+      type: trino
+      method: ldap
+      host: localhost
+      port: 8443
+      user: dbt_ldap
+      password: ldap-lab-password
+      cert: ../../stack/.generated/ca.crt
+      catalog: hive
+      schema: lab_retail
+      threads: 4

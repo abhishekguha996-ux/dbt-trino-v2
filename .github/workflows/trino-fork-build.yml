@@ -1,0 +1,160 @@
+# **what?**
+# Fork-only workflow for the experimental Trino adapter: runs the Trino-focused Rust tests and
+# builds release `dbt` binaries bundled with the ADBC Trino driver.
+#
+# **why?**
+# Lets teams install the adapter on Linux x86_64 hosts (for example Coder workspaces) before it
+# is available in an official dbt release. Not intended for the upstream repository.
+#
+# **when?**
+# Pushes to the trino-v2-adapter branch, `trino-v*` tags (which also publish a GitHub
+# release), and manual dispatch.
+
+name: Trino adapter build (fork)
+
+on:
+  push:
+    branches: [trino-v2-adapter]
+    tags: ["trino-v*"]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/trino-fork-build.yml"
+      - "contrib/trino-lab/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  TRINO_DRIVER_VERSION: v0.5.3
+
+jobs:
+  test:
+    name: Trino unit tests
+    if: github.repository != 'dbt-labs/dbt'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # actions/checkout@v4
+      - uses: ./.github/actions/setup-rust-linux
+        with:
+          cache-key: trino-fork-tests
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Trino-focused tests
+        run: |
+          cargo nextest run -p dbt-auth -p dbt-adbc -p dbt-adapter-sql -p dbt-adapter \
+            -p dbt-schemas -p dbt-loader -p dbt-profile-schemas -E 'test(trino) | test(access_token)'
+
+  build:
+    name: Build (${{ matrix.target }})
+    if: github.repository != 'dbt-labs/dbt'
+    needs: test
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            container: quay.io/pypa/manylinux_2_28_x86_64
+            driver_platform: linux_amd64
+            driver_sha256: 49ddc23d5d2e2f859bee554c005aff2ecbc17312a9f25c84d14834b68fbeecfc
+            library: libadbc_driver_trino.so
+          - target: aarch64-apple-darwin
+            os: macos-14
+            container: ""
+            driver_platform: macos_arm64
+            driver_sha256: 21f855023ced861ae3fec1b785ca0e5d313e9748425cae651ff131c65b070c15
+            library: libadbc_driver_trino.dylib
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # Swatinem/rust-cache@v2.9.1
+        with:
+          key: trino-${{ matrix.target }}
+          cache-bin: "false"
+
+      - name: Install Protocol Buffer Compiler
+        shell: bash
+        run: |
+          PB_VERSION="29.4"
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) PB_ASSET="linux-x86_64" ;;
+            Darwin-*) PB_ASSET="osx-universal_binary" ;;
+            *) echo "::error::Unsupported platform"; exit 1 ;;
+          esac
+          curl -LsSf "https://github.com/protocolbuffers/protobuf/releases/download/v$PB_VERSION/protoc-$PB_VERSION-$PB_ASSET.zip" -o /tmp/protoc.zip
+          rm -rf /tmp/protoc && unzip -q -o /tmp/protoc.zip -d /tmp/protoc
+          echo "/tmp/protoc/bin" >> "$GITHUB_PATH"
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build --release -p dbt-sa-cli --bin dbt --target "${{ matrix.target }}"
+
+      - name: Package binary with the ADBC Trino driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME//\//-}-$(git rev-parse --short HEAD)"
+          PKG="dbt-trino-v2-${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/$PKG/bin" "dist/$PKG/lib" /tmp/driver
+          cp "target/${{ matrix.target }}/release/dbt" "dist/$PKG/bin/dbt"
+          strip "dist/$PKG/bin/dbt" || true
+          DRIVER="trino_${{ matrix.driver_platform }}_${TRINO_DRIVER_VERSION}.tar.gz"
+          curl -LsSf "https://github.com/adbc-drivers/trino/releases/download/go/${TRINO_DRIVER_VERSION}/${DRIVER}" -o "/tmp/${DRIVER}"
+          sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+          echo "${{ matrix.driver_sha256 }}  /tmp/${DRIVER}" | sha256 -c -
+          tar -xzf "/tmp/${DRIVER}" -C /tmp/driver
+          cp "/tmp/driver/${{ matrix.library }}" "dist/$PKG/lib/"
+          cp /tmp/driver/LICENSE "dist/$PKG/lib/LICENSE.adbc-driver-trino"
+          cp /tmp/driver/NOTICE "dist/$PKG/lib/NOTICE.adbc-driver-trino" || true
+          cp LICENSE "dist/$PKG/LICENSE"
+          cp contrib/trino-lab/INSTALL.md "dist/$PKG/INSTALL.md"
+          tar -C dist -czf "dist/$PKG.tar.gz" "$PKG"
+          (cd dist && sha256 "$PKG.tar.gz" > "$PKG.tar.gz.sha256")
+          echo "PKG=$PKG" >> "$GITHUB_ENV"
+
+      - name: Smoke test
+        shell: bash
+        run: dist/${{ env.PKG }}/bin/dbt --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG }}
+          path: |
+            dist/${{ env.PKG }}.tar.gz
+            dist/${{ env.PKG }}.tar.gz.sha256
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/trino-v') && github.repository != 'dbt-labs/dbt'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "Experimental dbt v2 Trino adapter $GITHUB_REF_NAME" \
+            --notes "Unofficial build of the dbt v2 OSS CLI with the experimental Trino adapter. See INSTALL.md inside the archive." \
+            --prerelease
