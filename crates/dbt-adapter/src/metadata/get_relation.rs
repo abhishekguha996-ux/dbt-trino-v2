@@ -70,9 +70,11 @@ pub fn get_relation(
         AdapterType::Spark => spark_get_relation(
             adapter, state, ctx, conn, database, schema, identifier, token,
         ),
-        AdapterType::DuckDB | AdapterType::LakeCompute => duckdb_get_relation(
-            adapter, state, ctx, conn, database, schema, identifier, token,
-        ),
+        AdapterType::DuckDB | AdapterType::LakeCompute | AdapterType::Trino => {
+            information_schema_get_relation(
+                adapter, state, ctx, conn, database, schema, identifier, token,
+            )
+        }
         AdapterType::Fabric => fabric_get_relation(
             adapter, state, ctx, conn, database, schema, identifier, token,
         ),
@@ -84,7 +86,6 @@ pub fn get_relation(
         ),
         AdapterType::Starburst => todo!("Starburst"),
         AdapterType::Athena => todo!("Athena"),
-        AdapterType::Trino => todo!("Trino"),
         AdapterType::Dremio => todo!("Dremio"),
         AdapterType::Oracle => todo!("Oracle"),
         AdapterType::Datafusion => todo!("Datafusion"),
@@ -927,7 +928,7 @@ fn salesforce_get_relation(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn duckdb_get_relation(
+fn information_schema_get_relation(
     adapter: &AdapterImpl,
     state: &State,
     ctx: &QueryCtx,
@@ -939,6 +940,7 @@ fn duckdb_get_relation(
 ) -> AdapterResult<Option<Box<dyn BaseRelation>>> {
     // DuckDB is case-preserving for quoted identifiers
     // Unquoted identifiers are lowercase by default
+    // Trino stores every name in lowercase, and its query lowercases the literals itself
     let query_schema = if adapter.quoting().schema {
         schema.to_string()
     } else {
@@ -1002,17 +1004,24 @@ fn duckdb_get_relation(
     }
 
     // Query INFORMATION_SCHEMA.TABLES for relation metadata
-    // DuckDB's table_type values: BASE TABLE, VIEW, LOCAL TEMPORARY
-    let sql = format!(
-        r#"
+    let sql = match adapter.adapter_type() {
+        AdapterType::Trino => crate::metadata::generic::information_schema_tables_sql(
+            AdapterType::Trino,
+            database,
+            &query_schema,
+            Some(&query_identifier),
+        ),
+        _ => format!(
+            r#"
             SELECT table_type as type
             FROM information_schema.tables
             WHERE table_schema = '{}'
               AND table_name = '{}'
         "#,
-        dbt_adapter_sql::ident::escape_string_literal(&query_schema, AdapterType::DuckDB),
-        dbt_adapter_sql::ident::escape_string_literal(&query_identifier, AdapterType::DuckDB),
-    );
+            dbt_adapter_sql::ident::escape_string_literal(&query_schema, AdapterType::DuckDB),
+            dbt_adapter_sql::ident::escape_string_literal(&query_identifier, AdapterType::DuckDB),
+        ),
+    };
 
     let batch = adapter
         .engine()
@@ -1021,22 +1030,7 @@ fn duckdb_get_relation(
         return Ok(None);
     }
 
-    let string_array = batch.column_values::<StringArray>("type")?;
-
-    if string_array.len() != 1 {
-        return Err(AdapterError::new(
-            AdapterErrorKind::UnexpectedResult,
-            "Did not find 'type' for a relation",
-        ));
-    }
-
-    // Map DuckDB table_type to dbt RelationType
-    let relation_type = match string_array.value(0) {
-        "BASE TABLE" => Some(RelationType::Table),
-        "VIEW" => Some(RelationType::View),
-        "LOCAL TEMPORARY" => Some(RelationType::Table), // Treat temp tables as tables
-        _ => return invalid_value!("Unsupported relation type {}", string_array.value(0)),
-    };
+    let relation_type = information_schema_relation_type(adapter.adapter_type(), &batch)?;
 
     // Use the logical adapter type to create the appropriate relation
     // This avoids backend-specific limitations (like Postgres 63-char identifier limit)
@@ -1046,10 +1040,41 @@ fn duckdb_get_relation(
         database.to_string(),
         schema.to_string(),
         Some(identifier.to_string()),
-        relation_type,
+        Some(relation_type),
         adapter.quoting(),
     )?;
     Ok(Some(relation))
+}
+
+/// The relation type in the one `information_schema.tables` row that
+/// `information_schema_get_relation` selects. DuckDB's query names the column `type`; Trino's
+/// query (`information_schema_tables_sql`) returns `table_type`.
+fn information_schema_relation_type(
+    adapter_type: AdapterType,
+    batch: &arrow::record_batch::RecordBatch,
+) -> AdapterResult<RelationType> {
+    let type_column = match adapter_type {
+        AdapterType::Trino => "table_type",
+        _ => "type",
+    };
+    let string_array = batch.column_values::<StringArray>(type_column)?;
+
+    if string_array.len() != 1 {
+        return Err(AdapterError::new(
+            AdapterErrorKind::UnexpectedResult,
+            "Did not find 'type' for a relation",
+        ));
+    }
+
+    // DuckDB reports BASE TABLE, VIEW and LOCAL TEMPORARY. Trino reports BASE TABLE and VIEW, and
+    // its query adds MATERIALIZED VIEW from system.metadata.materialized_views.
+    match string_array.value(0) {
+        "BASE TABLE" => Ok(RelationType::Table),
+        "VIEW" => Ok(RelationType::View),
+        "MATERIALIZED VIEW" => Ok(RelationType::MaterializedView),
+        "LOCAL TEMPORARY" => Ok(RelationType::Table), // Treat temp tables as tables
+        other => invalid_value!("Unsupported relation type {}", other),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1243,6 +1268,37 @@ mod tests {
         let (relation_type, _, _, _, _) =
             parse_describe_table_extended(AdapterType::Spark, &batch).unwrap();
         assert_eq!(relation_type, RelationType::Table);
+    }
+
+    fn tables_row(type_column: &str, table_type: &str) -> RecordBatch {
+        let schema = Schema::new(vec![Field::new(type_column, DataType::Utf8, false)]);
+        RecordBatch::try_new(
+            Arc::new(schema),
+            vec![Arc::new(StringArray::from(vec![table_type]))],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn information_schema_row_types_for_trino_and_duckdb() {
+        for (table_type, expected) in [
+            ("BASE TABLE", RelationType::Table),
+            ("VIEW", RelationType::View),
+            ("MATERIALIZED VIEW", RelationType::MaterializedView),
+        ] {
+            let batch = tables_row("table_type", table_type);
+            assert_eq!(
+                information_schema_relation_type(AdapterType::Trino, &batch).unwrap(),
+                expected
+            );
+        }
+        let batch = tables_row("type", "LOCAL TEMPORARY");
+        assert_eq!(
+            information_schema_relation_type(AdapterType::DuckDB, &batch).unwrap(),
+            RelationType::Table
+        );
+        let batch = tables_row("table_type", "SYSTEM TABLE");
+        assert!(information_schema_relation_type(AdapterType::Trino, &batch).is_err());
     }
 
     #[test]

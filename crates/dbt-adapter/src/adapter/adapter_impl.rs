@@ -403,11 +403,10 @@ impl AdapterImpl {
                         }
                         ClickHouse => Box::new(ClickHouseMetadataAdapter::new(engine))
                             as Box<dyn MetadataAdapter>,
-                        Exasol => Box::new(GenericMetadataAdapter::new(engine))
+                        Exasol | Trino => Box::new(GenericMetadataAdapter::new(engine))
                             as Box<dyn MetadataAdapter>,
                         Starburst => todo!("Starburst"),
                         Athena => todo!("Athena"),
-                        Trino => todo!("Trino"),
                         Datafusion => todo!("Datafusion"),
                         Dremio => todo!("Dremio"),
                         Oracle => todo!("Oracle"),
@@ -1333,7 +1332,9 @@ impl AdapterImpl {
                 Exasol => "name",
                 Starburst => todo!("Starburst"),
                 Athena => todo!("Athena"),
-                Trino => todo!("Trino"),
+                // trino__list_schemas selects information_schema.schemata.schema_name
+                // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/include/trino/macros/adapters.sql#L287-L294
+                Trino => "schema_name",
                 Datafusion => todo!("Datafusion"),
                 Dremio => todo!("Dremio"),
                 Oracle => todo!("Oracle"),
@@ -1950,10 +1951,13 @@ impl AdapterImpl {
 
         // All-platform features.
         if name == "transactions" {
-            if self.adapter_type() == DuckDB && duckdb_is_motherduck(self.engine().get_config()) {
-                return Ok(Some(false));
-            }
-            return Ok(Some(true));
+            return Ok(Some(match self.adapter_type() {
+                // dbt-trino runs every statement in autocommit mode (IsolationLevel.AUTOCOMMIT)
+                // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/connections.py#L720
+                Trino => false,
+                DuckDB => !duckdb_is_motherduck(self.engine().get_config()),
+                _ => true,
+            }));
         }
 
         // platform-specific features.
@@ -4378,9 +4382,14 @@ impl AdapterImpl {
             Impl(Fabric, engine) => {
                 fabric::list_relations(engine.as_ref(), query_ctx, conn, db_schema, token)
             }
+            // Mirrors trino__list_relations_without_caching, including materialized views
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/include/trino/macros/adapters.sql#L34-L54
+            Impl(Trino, engine) => {
+                generic::list_relations(engine.as_ref(), query_ctx, conn, db_schema, token)
+            }
             Impl(
                 adapter_type @ (Postgres | Salesforce | ClickHouse | Exasol | Starburst | Athena
-                | Trino | Datafusion | Dremio | Oracle),
+                | Datafusion | Dremio | Oracle),
                 _,
             ) => {
                 let err = AdapterError::new(
@@ -7534,6 +7543,28 @@ mod tests {
         let adapter = AdapterImpl::new(build_engine(Redshift, config), None);
         let batch = record_batch_with_string_column("nspname", vec!["public"]);
         assert!(adapter.list_schemas_inner(batch).is_err());
+    }
+
+    #[test]
+    fn test_trino_list_schemas_uses_schema_name() {
+        let adapter = AdapterImpl::new(build_engine(Trino, Mapping::new()), None);
+        let batch = record_batch_with_string_column("schema_name", vec!["analytics", "staging"]);
+        let schemas = adapter.list_schemas_inner(batch).unwrap();
+        assert_eq!(
+            schemas,
+            vec!["analytics".to_string(), "staging".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_trino_has_no_transactions() {
+        let env = Environment::new();
+        let state = State::new_for_env(&env);
+        let adapter = AdapterImpl::new(build_engine(Trino, Mapping::new()), None);
+        let result = adapter
+            .has_feature(&state, "transactions", CancellationToken::never_cancels())
+            .unwrap();
+        assert_eq!(result, Some(false));
     }
 
     // -- Redshift standardize_grants_dict tests -------------------------------

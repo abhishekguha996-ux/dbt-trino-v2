@@ -1,0 +1,7 @@
+kind: Features
+body: '[Trino] Metadata adapter: relation listing, relation cache hydration (so --defer works without --favor-state) and get_relation from information_schema, including materialized views, with case-insensitive names'
+time: 2026-10-04T16:02:53.166302-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core
