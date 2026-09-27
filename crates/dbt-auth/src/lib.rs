@@ -88,7 +88,7 @@ pub fn auth_for_backend_with_warnings(
         Backend::ClickHouse => Box::new(clickhouse::ClickHouseAuth::new(warning_printer)),
         Backend::Athena => Box::new(athena::AthenaAuth::new(warning_printer)),
         Backend::Exasol => Box::new(exasol::ExasolAuth::new(warning_printer)),
-        backend if backend == trino::BACKEND => Box::new(trino::TrinoAuth),
+        backend if backend == trino::BACKEND => Box::new(trino::TrinoAuth::new(warning_printer)),
         Backend::Generic { .. } => unimplemented!("generic backend authentication"),
     }
 }

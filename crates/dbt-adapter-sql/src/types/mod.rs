@@ -748,8 +748,11 @@ impl SqlType {
             (ClickHouse, Numeric(Some((p, Some(s)))) | BigNumeric(Some((p, Some(s))))) => {
                 write!(out, "Decimal({p}, {s})")
             }
-            (ClickHouse | Trino, Map(Some((key, value)))) => {
-                write!(out, "Map(")?;
+            (backend @ (ClickHouse | Trino), Map(Some((key, value)))) => {
+                match backend {
+                    Trino => write!(out, "MAP(")?,
+                    _ => write!(out, "Map(")?,
+                }
                 key.write(backend, out)?;
                 write!(out, ", ")?;
                 value.write(backend, out)?;

@@ -7,7 +7,7 @@
 //! trino-go-client, so every option below maps to a DSN query parameter documented in
 //! <https://github.com/trinodb/trino-go-client/blob/v0.336.0/trino/trino.go>.
 
-use crate::{AdapterConfig, Auth, AuthError};
+use crate::{AdapterConfig, Auth, AuthError, AuthWarningPrinter};
 use dbt_adbc::{Backend, database};
 use dbt_yaml::Value as YmlValue;
 use url::Url;
@@ -44,7 +44,15 @@ const UNSUPPORTED_METHODS: [(&str, &str); 4] = [
     ),
 ];
 
-pub struct TrinoAuth;
+pub struct TrinoAuth {
+    warning_printer: Box<dyn AuthWarningPrinter>,
+}
+
+impl TrinoAuth {
+    pub fn new(warning_printer: Box<dyn AuthWarningPrinter>) -> Self {
+        Self { warning_printer }
+    }
+}
 
 impl Auth for TrinoAuth {
     fn backend(&self) -> Backend {
@@ -185,6 +193,13 @@ impl Auth for TrinoAuth {
         match (scheme, config.get("cert")) {
             (_, None | Some(YmlValue::Null(..))) | ("https", Some(YmlValue::Bool(true, ..))) => {}
             ("https", Some(YmlValue::Bool(false, ..))) => {
+                // dbt-trino v1 also warns unless `suppress_cert_warning` is set.
+                if bool_field(config, "suppress_cert_warning")? != Some(true) {
+                    self.warning_printer.warn(
+                        "Trino TLS certificate verification is disabled (cert: false); set \
+                         `cert` to a CA bundle path instead",
+                    );
+                }
                 query.push(("SSLVerification", "NONE".to_string()));
             }
             ("https", Some(YmlValue::String(path, ..))) if !path.is_empty() => {
@@ -201,9 +216,12 @@ impl Auth for TrinoAuth {
                 ));
             }
         }
-        // `retries` and `suppress_cert_warning` are accepted for dbt-trino v1 profile
-        // compatibility: trino-go-client has no client-side retry setting and this adapter emits
-        // no certificate warnings.
+        if config.get("retries").is_some_and(|value| !value.is_null()) {
+            // Accepted for dbt-trino v1 profile compatibility.
+            self.warning_printer.warn(
+                "Trino 'retries' is ignored: the ADBC Trino driver has no client-side retry setting",
+            );
+        }
 
         {
             let mut pairs = uri.query_pairs_mut();
@@ -350,6 +368,7 @@ mod tests {
     use crate::test_options::uri_value;
     use dbt_yaml::Mapping;
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     fn profile() -> Mapping {
         Mapping::from_iter([
@@ -361,12 +380,31 @@ mod tests {
         ])
     }
 
-    fn configure(pairs: &[(&str, YmlValue)]) -> Result<database::Builder, AuthError> {
+    #[derive(Clone, Default)]
+    struct RecordedWarnings(Arc<Mutex<Vec<String>>>);
+
+    impl AuthWarningPrinter for RecordedWarnings {
+        fn warn(&self, message: &str) {
+            self.0.lock().unwrap().push(message.to_string());
+        }
+    }
+
+    fn configure_with_warnings(
+        pairs: &[(&str, YmlValue)],
+    ) -> (Result<database::Builder, AuthError>, Vec<String>) {
         let mut config = profile();
         for (key, value) in pairs {
             config.insert((*key).into(), value.clone());
         }
-        TrinoAuth.configure(&AdapterConfig::new(config))
+        let warnings = RecordedWarnings::default();
+        let result =
+            TrinoAuth::new(Box::new(warnings.clone())).configure(&AdapterConfig::new(config));
+        let recorded = warnings.0.lock().unwrap().clone();
+        (result, recorded)
+    }
+
+    fn configure(pairs: &[(&str, YmlValue)]) -> Result<database::Builder, AuthError> {
+        configure_with_warnings(pairs).0
     }
 
     fn yaml(text: &str) -> YmlValue {
@@ -500,6 +538,27 @@ mod tests {
     }
 
     #[test]
+    fn disabled_verification_and_ignored_retries_warn() {
+        let https = [("method", YmlValue::from("ldap")), ("password", "x".into())];
+        let (result, warnings) =
+            configure_with_warnings(&[https[0].clone(), https[1].clone(), ("cert", false.into())]);
+        assert!(result.is_ok());
+        assert!(
+            warnings[0].contains("verification is disabled"),
+            "{warnings:?}"
+        );
+        let (_, warnings) = configure_with_warnings(&[
+            https[0].clone(),
+            https[1].clone(),
+            ("cert", false.into()),
+            ("suppress_cert_warning", true.into()),
+        ]);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let (_, warnings) = configure_with_warnings(&[("retries", 3.into())]);
+        assert!(warnings[0].contains("'retries' is ignored"), "{warnings:?}");
+    }
+
+    #[test]
     fn values_cannot_inject_uri_options() {
         let builder = configure(&[
             ("user", "user@host".into()),
@@ -561,7 +620,9 @@ mod tests {
             let mut config = profile();
             config.remove(YmlValue::from(key));
             assert!(
-                TrinoAuth.configure(&AdapterConfig::new(config)).is_err(),
+                TrinoAuth::new(Box::new(crate::NoopAuthWarningPrinter))
+                    .configure(&AdapterConfig::new(config))
+                    .is_err(),
                 "{key}"
             );
         }

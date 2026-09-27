@@ -1779,7 +1779,7 @@ fn trino_nested_types_and_escaped_field_names_roundtrip() {
         ("array(bigint)", "ARRAY(BIGINT)"),
         (
             "map(varchar, decimal(18,2))",
-            "Map(VARCHAR, DECIMAL(18, 2))",
+            "MAP(VARCHAR, DECIMAL(18, 2))",
         ),
         (
             "row(\"a\"\"b\" bigint, items array(varchar))",

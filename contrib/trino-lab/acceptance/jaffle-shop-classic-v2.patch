@@ -1,0 +1,109 @@
+diff --git a/dbt_project.yml b/dbt_project.yml
+index acdce4c..6e42bcc 100644
+--- a/dbt_project.yml
++++ b/dbt_project.yml
+@@ -10,17 +10,18 @@ seed-paths: ["seeds"]
+ test-paths: ["tests"]
+ analysis-paths: ["analysis"]
+ macro-paths: ["macros"]
+-
+-target-path: "target"
+ clean-targets:
+-    - "target"
+-    - "dbt_modules"
+-    - "logs"
++  - "target"
++  - "dbt_modules"
++  - "logs"
+ 
+ require-dbt-version: [">=1.0.0", "<2.0.0"]
+ 
+ models:
+   jaffle_shop:
+-      materialized: table
+-      staging:
+-        materialized: view
++    +on_table_exists: "{{ 'replace' if target.database == 'delta' else 'rename' }}"
++    staging:
++      +materialized: view
++    +materialized: table
++flags:
++  require_generic_test_arguments_property: true
+\ No newline at end of file
+diff --git a/models/orders_incremental.sql b/models/orders_incremental.sql
+new file mode 100644
+index 0000000..864dd00
+--- /dev/null
++++ b/models/orders_incremental.sql
+@@ -0,0 +1,5 @@
++{{ config(materialized='incremental', unique_key='order_id', incremental_strategy='merge') }}
++select * from {{ ref('orders') }}
++{% if is_incremental() %}
++where order_date >= (select max(order_date) from {{ this }})
++{% endif %}
+diff --git a/models/schema.yml b/models/schema.yml
+index 381349c..5b2ba39 100644
+--- a/models/schema.yml
++++ b/models/schema.yml
+@@ -44,9 +44,9 @@ models:
+         tests:
+           - not_null
+           - relationships:
+-              to: ref('customers')
+-              field: customer_id
+-
++              arguments:
++                to: ref('customers')
++                field: customer_id
+       - name: order_date
+         description: Date (UTC) that the order was placed
+ 
+@@ -54,7 +54,8 @@ models:
+         description: '{{ doc("orders_status") }}'
+         tests:
+           - accepted_values:
+-              values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
++              arguments:
++                values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
+ 
+       - name: amount
+         description: Total amount (AUD) of the order
+@@ -79,4 +80,4 @@ models:
+       - name: gift_card_amount
+         description: Amount of the order (AUD) paid for by gift card
+         tests:
+-          - not_null
++          - not_null
+\ No newline at end of file
+diff --git a/models/staging/schema.yml b/models/staging/schema.yml
+index c207e4c..77f9138 100644
+--- a/models/staging/schema.yml
++++ b/models/staging/schema.yml
+@@ -17,7 +17,8 @@ models:
+       - name: status
+         tests:
+           - accepted_values:
+-              values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
++              arguments:
++                values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
+ 
+   - name: stg_payments
+     columns:
+@@ -28,4 +29,5 @@ models:
+       - name: payment_method
+         tests:
+           - accepted_values:
+-              values: ['credit_card', 'coupon', 'bank_transfer', 'gift_card']
++              arguments:
++                values: ['credit_card', 'coupon', 'bank_transfer', 'gift_card']
+\ No newline at end of file
+diff --git a/snapshots/customers_snapshot.sql b/snapshots/customers_snapshot.sql
+new file mode 100644
+index 0000000..358e219
+--- /dev/null
++++ b/snapshots/customers_snapshot.sql
+@@ -0,0 +1,4 @@
++{% snapshot customers_snapshot %}
++{{ config(target_schema=target.schema, unique_key='customer_id', strategy='check', check_cols='all') }}
++select * from {{ ref('stg_customers') }}
++{% endsnapshot %}
