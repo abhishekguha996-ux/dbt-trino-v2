@@ -1,0 +1,7 @@
+kind: Under the Hood
+body: 'Redact `accessToken` URI query parameters in ADBC database builder debug output'
+time: 2026-09-28T12:00:00.000000-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core
