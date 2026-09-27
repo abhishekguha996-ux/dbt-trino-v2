@@ -1,4 +1,4 @@
-//! Exasol metadata adapter.
+//! Metadata adapter using zero-row probes and SQL catalog macros (used by Exasol).
 //!
 //! Provides the schema-creation preflight (`create_schemas_if_not_exists` ->
 //! `exasol__create_schema`), per-relation schema fetch for unit tests and
@@ -17,10 +17,12 @@ use crate::AdapterEngine;
 use crate::adapter::adapter_impl::AdapterImpl;
 use crate::connection::AdapterConnectionFactory;
 use crate::errors::{AdapterError, AdapterErrorKind, AsyncAdapterResult, Cancellable};
+use crate::relation::do_create_relation;
 use crate::{AdapterResult, metadata::*, record_batch::RecordBatchExt};
 use arrow_schema::Schema;
 use dbt_adbc::{Connection, QueryCtx};
 use dbt_common::cancellation::CancellationToken;
+use dbt_schemas::dbt_types::RelationType;
 
 use arrow_array::{Array, Decimal128Array, RecordBatch, StringArray};
 
@@ -37,18 +39,18 @@ use std::collections::{BTreeMap, HashMap};
 use std::future;
 use std::sync::Arc;
 
-pub struct ExasolMetadataAdapter {
+pub struct GenericMetadataAdapter {
     adapter: AdapterImpl,
 }
 
-impl ExasolMetadataAdapter {
+impl GenericMetadataAdapter {
     pub fn new(engine: Arc<dyn AdapterEngine>) -> Self {
         let adapter = AdapterImpl::new(engine, None);
         Self { adapter }
     }
 }
 
-impl MetadataAdapter for ExasolMetadataAdapter {
+impl MetadataAdapter for GenericMetadataAdapter {
     fn adapter_type(&self) -> AdapterType {
         self.adapter.adapter_type()
     }
@@ -176,15 +178,11 @@ impl MetadataAdapter for ExasolMetadataAdapter {
     ) -> AsyncAdapterResult<'_, HashMap<String, AdapterResult<Arc<Schema>>>> {
         type Acc = HashMap<String, AdapterResult<Arc<Schema>>>;
 
-        // Exasol is a 2-part name system (dbt `database` is a placeholder). The
-        // Arrow schema comes straight from a zero-row probe: the Exasol ADBC
-        // driver (exarrow-rs >= 0.12.7) returns the result-set schema even for
-        // empty results, so no string-based type parsing is needed. The probe
-        // must render the name exactly as materializations do (quote policy
-        // included): under the default policy objects are created quoted, so an
-        // unquoted probe would uppercase-resolve to a different name. The
-        // HashMap key must match `relation.semantic_fqn()`, so both forms are
-        // carried as a tuple.
+        // The Arrow schema comes straight from a zero-row probe (see the module docs). The probe
+        // must render the name exactly as materializations do (quote policy included): under
+        // Exasol's default policy objects are created quoted, so an unquoted probe would
+        // uppercase-resolve to a different name. The HashMap key must match
+        // `relation.semantic_fqn()`, so both forms are carried as a tuple.
         let keys: Vec<(String, String)> = relations
             .iter()
             .map(|relation| (relation.semantic_fqn(), relation.render_self_as_str()))
@@ -237,7 +235,10 @@ impl MetadataAdapter for ExasolMetadataAdapter {
     ) -> AsyncAdapterResult<'_, Vec<(String, AdapterResult<RelationSchemaPair>)>> {
         let err = AdapterError::new(
             AdapterErrorKind::NotSupported,
-            "list_relations_schemas_by_patterns is not yet implemented for the Exasol metadata adapter",
+            format!(
+                "list_relations_schemas_by_patterns is not yet implemented for the {} metadata adapter",
+                self.adapter_type()
+            ),
         );
         Box::pin(future::ready(Err(Cancellable::Error(err))))
     }
@@ -249,7 +250,10 @@ impl MetadataAdapter for ExasolMetadataAdapter {
     ) -> AsyncAdapterResult<'_, BTreeMap<String, MetadataFreshness>> {
         let err = AdapterError::new(
             AdapterErrorKind::NotSupported,
-            "metadata-based source freshness is not yet implemented for the Exasol adapter",
+            format!(
+                "metadata-based source freshness is not yet implemented for the {} adapter",
+                self.adapter_type()
+            ),
         );
         Box::pin(future::ready(Err(Cancellable::Error(err))))
     }
@@ -277,4 +281,46 @@ impl MetadataAdapter for ExasolMetadataAdapter {
         let future = async move { Ok(BTreeMap::new()) };
         Box::pin(future)
     }
+}
+
+/// Convert information_schema table rows using the engine's relation and quoting policy.
+pub(crate) fn relations_from_information_schema(
+    engine: &dyn AdapterEngine,
+    batch: &RecordBatch,
+) -> AdapterResult<Vec<Arc<dyn BaseRelation>>> {
+    if batch.num_rows() == 0 {
+        return Ok(Vec::new());
+    }
+
+    let table_catalogs = batch.column_values::<StringArray>("table_catalog")?;
+    let table_schemas = batch.column_values::<StringArray>("table_schema")?;
+    let table_names = batch.column_values::<StringArray>("table_name")?;
+    let table_types = batch.column_values::<StringArray>("table_type")?;
+
+    let mut relations = Vec::with_capacity(batch.num_rows());
+    for i in 0..batch.num_rows() {
+        let database = table_catalogs.value(i);
+        let schema = table_schemas.value(i);
+        let name = table_names.value(i);
+        let relation_type = match table_types.value(i) {
+            "BASE TABLE" => RelationType::Table,
+            "VIEW" => RelationType::View,
+            "LOCAL TEMPORARY" => RelationType::Table,
+            other => RelationType::from_adapter_type(engine.adapter_type(), other),
+        };
+
+        let relation = do_create_relation(
+            engine.adapter_type(),
+            database.to_string(),
+            schema.to_string(),
+            Some(name.to_string()),
+            Some(relation_type),
+            engine.quoting(),
+        )
+        .map_err(|e| AdapterError::new(AdapterErrorKind::Internal, e.to_string()))?;
+
+        relations.push(Arc::from(relation));
+    }
+
+    Ok(relations)
 }
