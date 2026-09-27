@@ -2028,6 +2028,134 @@ fn metadata_type_candidate_keys(backend: AdapterType) -> &'static [&'static str]
     }
 }
 
+/// Field-level differences between two struct (Trino `ROW`) column types.
+///
+/// Each path is the column name followed by the field names below it, and each entry carries
+/// the type rendered for `backend`. A field that only one side has is reported once with its
+/// full type, also when it is a struct itself, and entries follow the field order of the type
+/// they come from, so additions keep the source order. Based on dbt-trino v1 `diff_row_types`,
+/// which sorts the paths and lists every leaf of a missing struct:
+/// <https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/row_type_utils.py#L136-L166>
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StructTypeDiff {
+    /// Fields present in the source but not in the target, with the source type.
+    pub additions: Vec<(Vec<String>, String)>,
+    /// Fields present in the target but not in the source, with the target type.
+    pub removals: Vec<(Vec<String>, String)>,
+    /// Fields whose type differs, with the new (source) type.
+    pub type_changes: Vec<(Vec<String>, String)>,
+    /// Whether the fields that both types have are in a different order in the target, also in
+    /// the struct elements of array and map fields. Trino matches `ROW` fields by position on
+    /// INSERT and MERGE.
+    pub reordered: bool,
+}
+
+/// Diff two struct column types. Returns `None` unless both types parse as structs.
+pub fn diff_struct_types(
+    backend: AdapterType,
+    source_type: &str,
+    target_type: &str,
+    column: &str,
+) -> Option<StructTypeDiff> {
+    let struct_fields = |type_str: &str| match SqlType::parse(backend, type_str).ok()? {
+        (SqlType::Struct(Some(fields)), _) => Some(fields),
+        _ => None,
+    };
+    let source = struct_fields(source_type)?;
+    let target = struct_fields(target_type)?;
+
+    let mut diff = StructTypeDiff::default();
+    diff_struct_fields(backend, &source, &target, &[column.to_string()], &mut diff);
+    Some(diff)
+}
+
+fn diff_struct_fields(
+    backend: AdapterType,
+    source: &[StructField],
+    target: &[StructField],
+    path: &[String],
+    diff: &mut StructTypeDiff,
+) {
+    fn find<'a>(fields: &'a [StructField], name: &Ident) -> Option<&'a StructField> {
+        fields
+            .iter()
+            .find(|field| field.name.as_ref() == name.as_ref())
+    }
+    let field_path = |field: &StructField| {
+        let mut field_path = path.to_vec();
+        field_path.push(field.name.as_ref().to_string());
+        field_path
+    };
+
+    for source_field in source {
+        match find(target, &source_field.name) {
+            None => diff.additions.push((
+                field_path(source_field),
+                source_field.sql_type.to_string(backend),
+            )),
+            Some(target_field) => match (&source_field.sql_type, &target_field.sql_type) {
+                (SqlType::Struct(Some(source_fields)), SqlType::Struct(Some(target_fields))) => {
+                    diff_struct_fields(
+                        backend,
+                        source_fields,
+                        target_fields,
+                        &field_path(source_field),
+                        diff,
+                    )
+                }
+                (source_type, target_type) => {
+                    diff.reordered |= element_fields_reordered(backend, source_type, target_type);
+                    let source_type = source_type.to_string(backend);
+                    if !source_type.eq_ignore_ascii_case(&target_type.to_string(backend)) {
+                        diff.type_changes
+                            .push((field_path(source_field), source_type));
+                    }
+                }
+            },
+        }
+    }
+    for target_field in target {
+        if find(source, &target_field.name).is_none() {
+            diff.removals.push((
+                field_path(target_field),
+                target_field.sql_type.to_string(backend),
+            ));
+        }
+    }
+
+    let shared_names = |fields: &[StructField], other: &[StructField]| {
+        fields
+            .iter()
+            .filter(|field| find(other, &field.name).is_some())
+            .map(|field| field.name.as_ref().to_string())
+            .collect::<Vec<_>>()
+    };
+    diff.reordered |= shared_names(source, target) != shared_names(target, source);
+}
+
+/// Whether the struct elements of two array or map types, at any depth, have the fields that
+/// both have in a different order.
+fn element_fields_reordered(backend: AdapterType, source: &SqlType, target: &SqlType) -> bool {
+    match (source, target) {
+        (SqlType::Struct(Some(source_fields)), SqlType::Struct(Some(target_fields))) => {
+            let mut diff = StructTypeDiff::default();
+            diff_struct_fields(backend, source_fields, target_fields, &[], &mut diff);
+            diff.reordered
+        }
+        (SqlType::Array(Some(source)), SqlType::Array(Some(target))) => {
+            element_fields_reordered(backend, source, target)
+        }
+        (
+            SqlType::Map(Some((source_key, source_value))),
+            SqlType::Map(Some((target_key, target_value))),
+        ) => {
+            element_fields_reordered(backend, source_key, target_key)
+                || element_fields_reordered(backend, source_value, target_value)
+        }
+        _ => false,
+    }
+}
+
 pub fn metadata_sql_type_key(backend: AdapterType) -> &'static str {
     metadata_type_candidate_keys(backend)[0]
 }

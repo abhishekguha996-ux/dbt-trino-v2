@@ -1135,6 +1135,10 @@ impl BaseRelation for Relation {
             (Snowflake, Some(Table) | Some(View) | Some(DynamicTable) | Some(InteractiveTable)) => {
                 true
             }
+            // Trino replaces a materialized view in one statement (CREATE OR REPLACE), so a failed
+            // full refresh keeps the existing view:
+            // https://trino.io/docs/current/sql/create-materialized-view.html
+            (Trino, Some(MaterializedView)) => true,
             (_, Some(Table) | Some(View)) => true,
             (_, _) => false,
         }
@@ -1566,6 +1570,18 @@ mod tests {
                 relation.render_self_as_str(),
                 "\"Iceberg\".\"Staging\".\"MyTable\""
             );
+        }
+
+        #[test]
+        fn test_materialized_view_is_replaced_in_place() {
+            let relation = Relation::new(
+                AdapterType::Trino,
+                "iceberg".to_string(),
+                "analytics".to_string(),
+                "orders_mv".to_string(),
+            )
+            .with_relation_type(Some(RelationType::MaterializedView));
+            assert!(relation.can_be_replaced());
         }
     }
 

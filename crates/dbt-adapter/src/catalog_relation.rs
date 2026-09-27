@@ -231,6 +231,21 @@ impl CatalogRelation {
             return Self::from_linked_database_name(adapter_type, model, catalogs);
         }
 
+        // dbt-trino v1 resolves catalog_name through its own `trino` catalog integration, which
+        // catalogs.yml has no counterpart for yet:
+        // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/catalogs/_trino_catalog_metastore.py
+        match adapter_type {
+            AdapterType::Trino if model_catalog_name(model, adapter_type).is_some() => {
+                return Err(AdapterError::new(
+                    AdapterErrorKind::Configuration,
+                    "catalogs.yml catalog integrations (catalog_name) are not supported by the \
+                     Trino adapter yet. Remove catalog_name and use properties, file_format or \
+                     table_format.",
+                ));
+            }
+            _ => {}
+        }
+
         if !load_catalogs::fetch_use_catalogs_v2() || catalogs.is_none() {
             return Self::deprecated_from_model_config_and_catalogs(adapter_type, model, catalogs);
         }
@@ -690,6 +705,8 @@ impl CatalogRelation {
             AdapterType::Snowflake => SNOWFLAKE_ATTR,
             // Lake compute model configs surface the same way DuckDB's do.
             AdapterType::DuckDB | AdapterType::LakeCompute => DUCKDB_ATTR,
+            // Trino model configs have no adapter attribute; they are read from `config`.
+            AdapterType::Trino => "config",
             _ => return None,
         };
         let model_config = if let Ok(adapter_attr) = model.get_attr(adapter_attr)
@@ -5935,6 +5952,40 @@ mod tests {
                     .map(|s| s.as_str()),
                 Some("cool_connection")
             );
+        }
+    }
+
+    #[test]
+    fn trino_rejects_catalog_integrations_only_for_models_that_set_catalog_name() {
+        let build = |model: serde_json::Value| {
+            CatalogRelation::from_model_config_and_catalogs(
+                AdapterType::Trino,
+                &JVal::from_serialize(model),
+                None,
+            )
+        };
+        for model in [
+            json!({ "catalog_name": "lake" }),
+            json!({ "config": { "catalog_name": "lake" } }),
+        ] {
+            let error = build(model).unwrap_err();
+            assert_eq!(error.kind(), AdapterErrorKind::Configuration);
+            assert!(
+                error
+                    .to_string()
+                    .contains("catalogs.yml catalog integrations (catalog_name) are not supported"),
+                "{error}"
+            );
+        }
+
+        // Without catalog_name, or with the `none` opt-out, the shared resolvers answer, as for
+        // the other adapters without catalog integrations.
+        for model in [
+            json!({ "materialized": "table" }),
+            json!({ "catalog_name": "none" }),
+        ] {
+            let error = build(model).unwrap_err();
+            assert_eq!(error.kind(), AdapterErrorKind::Internal, "{error}");
         }
     }
 }

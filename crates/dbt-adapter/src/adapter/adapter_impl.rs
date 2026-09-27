@@ -720,6 +720,7 @@ impl AdapterImpl {
     /// RedshiftAdapter https://github.com/dbt-labs/dbt-adapters/blob/0efd8d3d1081e1ab43e38797d5104f7b424a6284/dbt-redshift/src/dbt/adapters/redshift/impl.py#L490
     /// SnowflakeAdapter https://github.com/dbt-labs/dbt-adapters/blob/0efd8d3d1081e1ab43e38797d5104f7b424a6284/dbt-snowflake/src/dbt/adapters/snowflake/impl.py#L502
     /// DatabricksAdapter https://github.com/databricks/dbt-databricks/blob/2f11abb306a400cde32b27891b766bf41a11fb1f/dbt/adapters/databricks/impl.py#L808
+    /// TrinoAdapter https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L363-L364
     pub fn valid_incremental_strategies(&self) -> &[DbtIncrementalStrategy] {
         use DbtIncrementalStrategy::*;
 
@@ -741,10 +742,28 @@ impl AdapterImpl {
             ClickHouse => &[Append, DeleteInsert, InsertOverwrite, Microbatch, Legacy],
             Spark => &[Append, Merge, InsertOverwrite, Microbatch],
             Exasol => &[Append, DeleteInsert, Merge, Microbatch],
-            Athena | Starburst | Trino | Datafusion | Dremio | Oracle => {
+            Trino => &[Append, DeleteInsert, Merge, Microbatch],
+            Athena | Starburst | Datafusion | Dremio | Oracle => {
                 unimplemented!("valid_incremental_strategies not implemented")
             }
         }
+    }
+
+    /// Field-level differences between two nested (struct / Trino `ROW`) column types.
+    ///
+    /// TrinoAdapter.sync_row_columns https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L282-L361
+    pub fn diff_nested_column_types(
+        adapter_type: AdapterType,
+        source_type: &str,
+        target_type: &str,
+        column_name: &str,
+    ) -> Option<dbt_adapter_sql::types::StructTypeDiff> {
+        dbt_adapter_sql::types::diff_struct_types(
+            adapter_type,
+            source_type,
+            target_type,
+            column_name,
+        )
     }
 
     /// Redact credentials expressions from DDL statements
@@ -2612,6 +2631,35 @@ impl AdapterImpl {
             return Ok("text".to_string());
         }
 
+        // TrinoAdapter.convert_number_type / convert_datetime_type: whole numbers are INTEGER and
+        // datetimes a bare TIMESTAMP, so the catalog's configured precision applies (Hive
+        // defaults to milliseconds and rejects timestamp(6)). Whole numbers outside the INTEGER
+        // range, which v1 could not load, become BIGINT.
+        // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L181-L188
+        match (self.adapter_type(), data_type) {
+            (Trino, DataType::Timestamp(_, None)) => return Ok("TIMESTAMP".to_string()),
+            (Trino, DataType::Int8 | DataType::Int16 | DataType::Int32) => {
+                return Ok("INTEGER".to_string());
+            }
+            (Trino, DataType::Int64) => {
+                let column = batch.column(col_idx as usize).as_any();
+                let fits_integer = if let Some(ints) =
+                    column.downcast_ref::<arrow_array::Int64Array>()
+                {
+                    ints.iter().flatten().all(|v| i32::try_from(v).is_ok())
+                } else if let Some(floats) = column.downcast_ref::<arrow_array::Float64Array>() {
+                    floats
+                        .iter()
+                        .flatten()
+                        .all(|v| (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&v))
+                } else {
+                    false
+                };
+                return Ok(if fits_integer { "INTEGER" } else { "BIGINT" }.to_string());
+            }
+            _ => {}
+        }
+
         let mut out = String::new();
         self.engine()
             .type_ops()
@@ -3044,8 +3092,13 @@ impl AdapterImpl {
             (ClickHouse, Check) => Enforced,
             (ClickHouse, NotNull | Unique | PrimaryKey | ForeignKey | Custom) => NotSupported,
 
+            // Trino (dbt-trino impl.py CONSTRAINT_SUPPORT)
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L64-L70
+            (Trino, NotNull) => Enforced,
+            (Trino, Check | Unique | PrimaryKey | ForeignKey | Custom) => NotSupported,
+
             // Salesforce
-            (Salesforce | Spark | Starburst | Athena | Trino | Datafusion | Dremio | Oracle, _) => {
+            (Salesforce | Spark | Starburst | Athena | Datafusion | Dremio | Oracle, _) => {
                 unimplemented!("constraint support not implemented")
             }
         }
@@ -3153,7 +3206,8 @@ impl AdapterImpl {
         }
 
         match self.adapter_type() {
-            Postgres | Bigquery | DuckDB | LakeCompute | Exasol => {
+            // TrinoAdapter uses BaseAdapter.standardize_grants_dict over `trino__get_show_grant_sql`
+            Postgres | Bigquery | DuckDB | LakeCompute | Exasol | Trino => {
                 let grantee_cols = record_batch.column_values::<StringArray>("grantee")?;
                 let privilege_cols = record_batch.column_values::<StringArray>("privilege_type")?;
 
@@ -3347,8 +3401,8 @@ impl AdapterImpl {
 
                 Ok(result)
             }
-            Salesforce | Spark | Fabric | ClickHouse | Starburst | Athena | Trino | Datafusion
-            | Dremio | Oracle => {
+            Salesforce | Spark | Fabric | ClickHouse | Starburst | Athena | Datafusion | Dremio
+            | Oracle => {
                 unimplemented!("grants not implemented")
             }
         }
@@ -6684,6 +6738,29 @@ mod tests {
     }
 
     #[test]
+    fn trino_incremental_strategies_match_dbt_trino() {
+        use DbtIncrementalStrategy::*;
+
+        let adapter = AdapterImpl::new(build_engine(Trino, Mapping::new()), None);
+        let env = Environment::new();
+        let state = State::new_for_env(&env);
+
+        assert_eq!(
+            adapter.valid_incremental_strategies(),
+            &[Append, DeleteInsert, Merge, Microbatch]
+        );
+        let err = adapter
+            .get_incremental_strategy_macro(&state, "insert_overwrite")
+            .expect_err("dbt-trino has no insert_overwrite strategy");
+        assert!(
+            err.to_string().contains(
+                "The incremental strategy 'insert_overwrite' is not valid for this adapter"
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn test_quote_for_snowflake() {
         let adapter = AdapterImpl::new(engine(Snowflake), None);
         assert_eq!(adapter.quote("abc"), "\"abc\"");
@@ -7340,6 +7417,54 @@ mod tests {
             "Int64"
         );
         assert_eq!(adapter.convert_type(&state, table, 1).unwrap(), "Int64");
+    }
+
+    #[test]
+    fn test_convert_type_trino_seed_types() {
+        use arrow_array::{Float64Array, Int64Array, TimestampMicrosecondArray};
+        use arrow_schema::TimeUnit;
+
+        let i32_max = i64::from(i32::MAX);
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("in_range", DataType::Int64, true),
+            Field::new("above_range", DataType::Int64, true),
+            Field::new("whole_floats", DataType::Float64, true),
+            Field::new("large_whole_floats", DataType::Float64, true),
+            Field::new(
+                "naive_ts",
+                DataType::Timestamp(TimeUnit::Microsecond, None),
+                true,
+            ),
+        ]));
+        let columns: Vec<ArrayRef> = vec![
+            Arc::new(Int64Array::from(vec![Some(-1), None, Some(i32_max)])),
+            Arc::new(Int64Array::from(vec![Some(1), None, Some(i32_max + 1)])),
+            Arc::new(Float64Array::from(vec![Some(1.0), None, Some(-2.0)])),
+            Arc::new(Float64Array::from(vec![Some(1.0), None, Some(1e10)])),
+            Arc::new(TimestampMicrosecondArray::from(vec![
+                Some(0),
+                None,
+                Some(1),
+            ])),
+        ];
+        let batch = RecordBatch::try_new(schema, columns).unwrap();
+        let table = Arc::new(AgateTable::from_record_batch(Arc::new(batch)));
+
+        let adapter = AdapterImpl::new(build_engine(Trino, Mapping::new()), None);
+        let env = Environment::new();
+        let state = State::new_for_env(&env);
+
+        let types = (0..5)
+            .map(|col_idx| {
+                adapter
+                    .convert_type(&state, Arc::clone(&table), col_idx)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            types,
+            ["INTEGER", "BIGINT", "INTEGER", "BIGINT", "TIMESTAMP"]
+        );
     }
 
     #[test]

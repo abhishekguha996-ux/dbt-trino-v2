@@ -2,11 +2,15 @@
 All adapter macros are currently maintained in:
 * [dbt-labs/dbt-adapters](https://github.com/dbt-labs/dbt-adapters)
 * [databricks/dbt-databricks](https://github.com/databricks/dbt-databricks)
+* [starburstdata/dbt-trino](https://github.com/starburstdata/dbt-trino)
 
 ## Changelog
 
 ### [2026-10-06]
   - dbt-databricks: emit constraint ALTER statements in a stable order from PR #1698
+
+### [2026-09-27]
+  - dbt-trino: v1.10.5 (commit 6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6), Apache-2.0, Copyright 2021 Starburst Data, Inc.; each dbt v2 behavior change is marked `v2:` in its file, `dbt_project.yml` (quoted version) and `adapters.sql` (v1's header comment removed) have unmarked edits, and `macros/relations.sql` is new. v1.10.6 has no macro changes.
 
 ### [2026-09-24]
   - dbt-databricks: gate view/metric_view ALTER on matching relation type from PR #1687

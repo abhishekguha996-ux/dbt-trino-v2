@@ -446,6 +446,24 @@ pub struct WarehouseSpecificNodeConfig {
     pub distribute_by_config: Option<StringOrArrayOfStrings>,
     #[warehouse(valid(Model, Snapshot))]
     pub primary_key_config: Option<StringOrArrayOfStrings>,
+
+    // Trino
+    // Key names match the Python dbt-trino adapter so existing projects migrate without
+    // config changes: https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L45-L50
+    #[warehouse(valid(Model, Seed, Snapshot))]
+    pub properties: Option<IndexMap<String, YmlValue>>,
+    #[warehouse(valid(Model))]
+    pub view_security: Option<String>,
+    #[warehouse(valid(Model))]
+    pub on_table_exists: Option<String>,
+    #[serde(default, deserialize_with = "bool_or_string_bool")]
+    #[warehouse(valid(Model))]
+    pub sync_nested_columns: Option<bool>,
+    #[serde(default, deserialize_with = "bool_or_string_bool")]
+    #[warehouse(valid(Model))]
+    pub views_enabled: Option<bool>,
+    #[warehouse(valid(Model))]
+    pub grace_period: Option<String>,
 }
 
 impl ResolvedConfig for WarehouseSpecificNodeConfig {
@@ -719,6 +737,13 @@ pub fn same_warehouse_config(
     let repopulate_from_mvs_on_full_refresh_eq =
         self_wh.repopulate_from_mvs_on_full_refresh == other_wh.repopulate_from_mvs_on_full_refresh;
 
+    let properties_eq = self_wh.properties == other_wh.properties;
+    let view_security_eq = self_wh.view_security == other_wh.view_security;
+    let on_table_exists_eq = self_wh.on_table_exists == other_wh.on_table_exists;
+    let sync_nested_columns_eq = self_wh.sync_nested_columns == other_wh.sync_nested_columns;
+    let views_enabled_eq = self_wh.views_enabled == other_wh.views_enabled;
+    let grace_period_eq = self_wh.grace_period == other_wh.grace_period;
+
     let result = partition_by_eq
         && cluster_by_eq
         && hours_to_expiration_eq
@@ -821,7 +846,13 @@ pub fn same_warehouse_config(
         && refreshable_eq
         && catchup_eq
         && mv_on_schema_change_eq
-        && repopulate_from_mvs_on_full_refresh_eq;
+        && repopulate_from_mvs_on_full_refresh_eq
+        && properties_eq
+        && view_security_eq
+        && on_table_exists_eq
+        && sync_nested_columns_eq
+        && views_enabled_eq
+        && grace_period_eq;
 
     if !result {
         log_state_mod_diff(
@@ -1650,6 +1681,54 @@ pub fn same_warehouse_config(
                     Some((
                         format!("{:?}", &self_wh.repopulate_from_mvs_on_full_refresh),
                         format!("{:?}", &other_wh.repopulate_from_mvs_on_full_refresh),
+                    )),
+                ),
+                (
+                    "properties",
+                    properties_eq,
+                    Some((
+                        format!("{:?}", &self_wh.properties),
+                        format!("{:?}", &other_wh.properties),
+                    )),
+                ),
+                (
+                    "view_security",
+                    view_security_eq,
+                    Some((
+                        format!("{:?}", &self_wh.view_security),
+                        format!("{:?}", &other_wh.view_security),
+                    )),
+                ),
+                (
+                    "on_table_exists",
+                    on_table_exists_eq,
+                    Some((
+                        format!("{:?}", &self_wh.on_table_exists),
+                        format!("{:?}", &other_wh.on_table_exists),
+                    )),
+                ),
+                (
+                    "sync_nested_columns",
+                    sync_nested_columns_eq,
+                    Some((
+                        format!("{:?}", &self_wh.sync_nested_columns),
+                        format!("{:?}", &other_wh.sync_nested_columns),
+                    )),
+                ),
+                (
+                    "views_enabled",
+                    views_enabled_eq,
+                    Some((
+                        format!("{:?}", &self_wh.views_enabled),
+                        format!("{:?}", &other_wh.views_enabled),
+                    )),
+                ),
+                (
+                    "grace_period",
+                    grace_period_eq,
+                    Some((
+                        format!("{:?}", &self_wh.grace_period),
+                        format!("{:?}", &other_wh.grace_period),
                     )),
                 ),
             ],

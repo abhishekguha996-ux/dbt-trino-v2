@@ -1864,3 +1864,132 @@ fn trino_arrow_rendering_preserves_nested_types_and_unsigned_range() {
         "DECIMAL(39, 0)"
     );
 }
+
+fn field_path(segments: &[&str]) -> Vec<String> {
+    segments.iter().map(|segment| segment.to_string()).collect()
+}
+
+#[test]
+fn trino_struct_diff_reports_nested_additions_removals_and_type_changes() {
+    let diff = diff_struct_types(
+        Trino,
+        "row(a bigint, b row(c varchar, \"new.field\" date), keep integer)",
+        "row(a integer, b row(c varchar, gone double), keep integer)",
+        "payload",
+    )
+    .unwrap();
+    assert_eq!(
+        diff.additions,
+        vec![(
+            field_path(&["payload", "b", "new.field"]),
+            "DATE".to_string()
+        )]
+    );
+    assert_eq!(
+        diff.removals,
+        vec![(field_path(&["payload", "b", "gone"]), "DOUBLE".to_string())]
+    );
+    assert_eq!(
+        diff.type_changes,
+        vec![(field_path(&["payload", "a"]), "BIGINT".to_string())]
+    );
+    assert!(!diff.reordered);
+    assert_eq!(diff_struct_types(Trino, "varchar", "row(a int)", "c"), None);
+    assert_eq!(
+        diff_struct_types(Trino, "row(a int)", "ROW(a INTEGER)", "c"),
+        Some(StructTypeDiff::default())
+    );
+}
+
+#[test]
+fn trino_struct_diff_keeps_source_order_and_whole_structs() {
+    let diff = diff_struct_types(
+        Trino,
+        "row(a varchar, zeta varchar, alpha varchar, s row(x integer, y varchar))",
+        "row(a varchar)",
+        "payload",
+    )
+    .unwrap();
+    assert_eq!(
+        diff.additions,
+        vec![
+            (field_path(&["payload", "zeta"]), "VARCHAR".to_string()),
+            (field_path(&["payload", "alpha"]), "VARCHAR".to_string()),
+            (
+                field_path(&["payload", "s"]),
+                "ROW(x INT, y VARCHAR)".to_string()
+            ),
+        ]
+    );
+
+    let diff = diff_struct_types(
+        Trino,
+        "row(a varchar)",
+        "row(a varchar, s row(x integer))",
+        "payload",
+    )
+    .unwrap();
+    assert_eq!(
+        diff.removals,
+        vec![(field_path(&["payload", "s"]), "ROW(x INT)".to_string())]
+    );
+}
+
+#[test]
+fn trino_struct_diff_flags_shared_fields_in_another_order() {
+    let reordered = |source: &str, target: &str| {
+        diff_struct_types(Trino, source, target, "payload")
+            .unwrap()
+            .reordered
+    };
+    // A field added in the middle of the source lands at the end of the target.
+    assert!(reordered(
+        "row(a varchar, m varchar, b varchar)",
+        "row(a varchar, b varchar, m varchar)"
+    ));
+    assert!(reordered(
+        "row(s row(x integer, y integer))",
+        "row(s row(y integer, x integer))"
+    ));
+    assert!(!reordered(
+        "row(a varchar, m varchar, b varchar)",
+        "row(a varchar, b varchar)"
+    ));
+    assert!(!reordered(
+        "row(a varchar, b varchar, m varchar)",
+        "row(a varchar, b varchar)"
+    ));
+}
+
+#[test]
+fn trino_struct_diff_flags_reordered_rows_in_arrays_and_maps() {
+    let diff =
+        |source: &str, target: &str| diff_struct_types(Trino, source, target, "payload").unwrap();
+    // Trino also matches the fields of a ROW inside an ARRAY or a MAP by position.
+    let array_diff = diff(
+        "row(items array(row(x integer, y integer)))",
+        "row(items array(row(y integer, x integer)))",
+    );
+    assert!(array_diff.reordered);
+    assert_eq!(
+        array_diff.type_changes,
+        vec![(
+            field_path(&["payload", "items"]),
+            "ARRAY(ROW(x INT, y INT))".to_string()
+        )]
+    );
+    assert!(
+        diff(
+            "row(m map(varchar, array(row(x integer, y integer))))",
+            "row(m map(varchar, array(row(y integer, x integer))))"
+        )
+        .reordered
+    );
+    assert!(
+        !diff(
+            "row(items array(row(x integer, y integer, z integer)))",
+            "row(items array(row(x integer, y integer)))"
+        )
+        .reordered
+    );
+}

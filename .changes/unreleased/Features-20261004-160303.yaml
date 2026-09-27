@@ -1,0 +1,7 @@
+kind: Features
+body: '[Trino] dbt-trino macro package (vendored from dbt-trino v1.10.5): table, view, incremental (append, merge, delete+insert, microbatch), snapshot, materialized view, seeds, grants, persist_docs, contracts, on_table_exists, view_security, properties and nested ROW schema sync'
+time: 2026-10-04T16:03:03.218803-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core
