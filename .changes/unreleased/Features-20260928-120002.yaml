@@ -1,0 +1,7 @@
+kind: Features
+body: '[Trino] Relations, columns, SQL types (ROW, ARRAY, MAP, VARBINARY, DECIMAL), seed column naming, typed literals and microbatch event-time filters'
+time: 2026-09-28T12:00:00.000000-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core

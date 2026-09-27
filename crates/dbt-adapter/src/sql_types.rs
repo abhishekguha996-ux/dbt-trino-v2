@@ -187,6 +187,7 @@ impl TypeOps for DefaultTypeOps {
             Postgres | Salesforce => postgres::try_format_type(data_type, nullable, out),
             Fabric => fabric::try_format_type(data_type, nullable, out),
             ClickHouse => clickhouse::try_format_type(data_type, nullable, out),
+            Trino => self.format_sql_type(SqlType::from_arrow_type(adapter_type, data_type), out),
             _ => {
                 if adapter_type == Bigquery && matches!(data_type, DataType::Timestamp(_, Some(_)))
                 {
@@ -569,7 +570,7 @@ pub const fn get_field_sql_type_metadata_key(adapter_type: AdapterType) -> &'sta
         AdapterType::Exasol => "DATA_TYPE",
         AdapterType::Starburst => todo!(),
         AdapterType::Athena => todo!(),
-        AdapterType::Trino => todo!(),
+        AdapterType::Trino => "sql.database_type_name",
         AdapterType::Dremio => todo!(),
         AdapterType::Oracle => todo!(),
         AdapterType::Datafusion => todo!(),

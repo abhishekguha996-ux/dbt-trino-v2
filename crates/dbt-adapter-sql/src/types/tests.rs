@@ -1772,3 +1772,46 @@ fn test_parse_column_description() {
     assert_eq!(col.name.unwrap().as_ref(), "price");
     assert!(matches!(col.sql_type, Numeric(Some((10, Some(2))))));
 }
+
+#[test]
+fn trino_nested_types_and_escaped_field_names_roundtrip() {
+    for (input, expected) in [
+        ("array(bigint)", "ARRAY(BIGINT)"),
+        (
+            "map(varchar, decimal(18,2))",
+            "MAP(VARCHAR, DECIMAL(18, 2))",
+        ),
+        (
+            "row(\"a\"\"b\" bigint, items array(varchar))",
+            "ROW(\"a\"\"b\" BIGINT, items ARRAY(VARCHAR))",
+        ),
+        ("timestamp(6) with time zone", "TIMESTAMP(6) WITH TIME ZONE"),
+        ("varbinary", "VARBINARY"),
+    ] {
+        let (ty, _) = SqlType::parse(Trino, input).unwrap();
+        assert_eq!(ty.to_string(Trino), expected);
+    }
+}
+
+#[test]
+fn trino_arrow_rendering_preserves_nested_types_and_unsigned_range() {
+    use arrow_schema::{DataType, Field};
+    use std::sync::Arc;
+    let nested = DataType::Struct(
+        vec![Arc::new(Field::new(
+            "field\"name",
+            DataType::List(Arc::new(Field::new("item", DataType::UInt64, true))),
+            false,
+        ))]
+        .into(),
+    );
+    let sql = SqlType::from_arrow_type(Trino, &nested).to_string(Trino);
+    assert_eq!(sql, "ROW(\"field\"\"name\" ARRAY(DECIMAL(20, 0)))");
+    assert!(SqlType::parse(Trino, &sql).is_ok());
+    // Rendering must remain infallible; Trino rejects unsupported precision
+    // instead of silently narrowing it or panicking in Display/to_string.
+    assert_eq!(
+        Numeric(Some((39, Some(0)))).to_string(Trino),
+        "DECIMAL(39, 0)"
+    );
+}
