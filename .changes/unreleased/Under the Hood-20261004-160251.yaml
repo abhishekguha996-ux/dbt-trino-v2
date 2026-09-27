@@ -1,0 +1,7 @@
+kind: Under the Hood
+body: Rename the Exasol metadata adapter to GenericMetadataAdapter and share DuckDB's information_schema row conversion, so other adapters can reuse them (no behavior change)
+time: 2026-10-04T16:02:51.015334-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core
