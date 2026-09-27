@@ -1,0 +1,7 @@
+kind: Features
+body: '[Trino] Profile schema and authentication for the ADBC Trino driver (dbt-trino v1 profile fields; none, ldap, jwt and kerberos methods)'
+time: 2026-09-28T12:00:00.000000-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: "13131"
+    project: dbt-core
