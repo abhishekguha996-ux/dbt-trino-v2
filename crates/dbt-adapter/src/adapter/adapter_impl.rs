@@ -741,10 +741,30 @@ impl AdapterImpl {
             ClickHouse => &[Append, DeleteInsert, InsertOverwrite, Microbatch, Legacy],
             Spark => &[Append, Merge, InsertOverwrite, Microbatch],
             Exasol => &[Append, DeleteInsert, Merge, Microbatch],
-            Athena | Starburst | Trino | Datafusion | Dremio | Oracle => {
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L363-L364
+            // insert_overwrite is a v2 addition for Hive connector catalogs.
+            Trino => &[Append, DeleteInsert, Merge, Microbatch, InsertOverwrite],
+            Athena | Starburst | Datafusion | Dremio | Oracle => {
                 unimplemented!("valid_incremental_strategies not implemented")
             }
         }
+    }
+
+    /// Leaf-level differences between two nested (struct / Trino `ROW`) column types.
+    ///
+    /// TrinoAdapter.sync_row_columns https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L282-L361
+    pub fn diff_nested_column_types(
+        adapter_type: AdapterType,
+        source_type: &str,
+        target_type: &str,
+        column_name: &str,
+    ) -> Option<dbt_adapter_sql::types::StructTypeDiff> {
+        dbt_adapter_sql::types::diff_struct_types(
+            adapter_type,
+            source_type,
+            target_type,
+            column_name,
+        )
     }
 
     /// Redact credentials expressions from DDL statements
@@ -2518,6 +2538,35 @@ impl AdapterImpl {
             return Ok("text".to_string());
         }
 
+        // TrinoAdapter.convert_number_type / convert_datetime_type: whole numbers are INTEGER and
+        // datetimes a bare TIMESTAMP, so the catalog's configured precision applies (Hive
+        // defaults to milliseconds and rejects timestamp(6)). Whole numbers outside the INTEGER
+        // range, which v1 could not load, become BIGINT.
+        // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L181-L188
+        match (self.adapter_type(), data_type) {
+            (Trino, DataType::Timestamp(_, None)) => return Ok("TIMESTAMP".to_string()),
+            (Trino, DataType::Int8 | DataType::Int16 | DataType::Int32) => {
+                return Ok("INTEGER".to_string());
+            }
+            (Trino, DataType::Int64) => {
+                let column = batch.column(col_idx as usize).as_any();
+                let fits_integer = if let Some(ints) =
+                    column.downcast_ref::<arrow_array::Int64Array>()
+                {
+                    ints.iter().flatten().all(|v| i32::try_from(v).is_ok())
+                } else if let Some(floats) = column.downcast_ref::<arrow_array::Float64Array>() {
+                    floats
+                        .iter()
+                        .flatten()
+                        .all(|v| (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&v))
+                } else {
+                    false
+                };
+                return Ok(if fits_integer { "INTEGER" } else { "BIGINT" }.to_string());
+            }
+            _ => {}
+        }
+
         let mut out = String::new();
         self.engine()
             .type_ops()
@@ -2950,8 +2999,13 @@ impl AdapterImpl {
             (ClickHouse, Check) => Enforced,
             (ClickHouse, NotNull | Unique | PrimaryKey | ForeignKey | Custom) => NotSupported,
 
+            // Trino (dbt-trino impl.py CONSTRAINT_SUPPORT)
+            // https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L64-L70
+            (Trino, NotNull) => Enforced,
+            (Trino, Check | Unique | PrimaryKey | ForeignKey | Custom) => NotSupported,
+
             // Salesforce
-            (Salesforce | Spark | Starburst | Athena | Trino | Datafusion | Dremio | Oracle, _) => {
+            (Salesforce | Spark | Starburst | Athena | Datafusion | Dremio | Oracle, _) => {
                 unimplemented!("constraint support not implemented")
             }
         }
@@ -3059,7 +3113,8 @@ impl AdapterImpl {
         }
 
         match self.adapter_type() {
-            Postgres | Bigquery | DuckDB | LakeCompute | Exasol => {
+            // TrinoAdapter uses BaseAdapter.standardize_grants_dict over `trino__get_show_grant_sql`
+            Postgres | Bigquery | DuckDB | LakeCompute | Exasol | Trino => {
                 let grantee_cols = record_batch.column_values::<StringArray>("grantee")?;
                 let privilege_cols = record_batch.column_values::<StringArray>("privilege_type")?;
 
@@ -3253,8 +3308,8 @@ impl AdapterImpl {
 
                 Ok(result)
             }
-            Salesforce | Spark | Fabric | ClickHouse | Starburst | Athena | Trino | Datafusion
-            | Dremio | Oracle => {
+            Salesforce | Spark | Fabric | ClickHouse | Starburst | Athena | Datafusion | Dremio
+            | Oracle => {
                 unimplemented!("grants not implemented")
             }
         }

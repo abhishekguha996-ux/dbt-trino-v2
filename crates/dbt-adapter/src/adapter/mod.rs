@@ -3578,6 +3578,49 @@ impl Adapter {
         }
     }
 
+    /// Leaf-level differences between two nested (struct / Trino `ROW`) column types, as
+    /// `{additions, removals, type_changes}` lists of `[path, type]`, or `none` when either
+    /// type is not a struct. Backs dbt-trino's `sync_nested_columns`:
+    /// https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/impl.py#L282-L361
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub fn diff_nested_column_types(
+        &self,
+        state: &State,
+        args: &[Value],
+    ) -> Result<Value, minijinja::Error> {
+        let iter = ArgsIter::new(
+            "diff_nested_column_types",
+            &["source_type", "target_type", "column_name"],
+            args,
+        );
+        let source_type = iter.next_arg::<&str>()?;
+        let target_type = iter.next_arg::<&str>()?;
+        let column_name = iter.next_arg::<&str>()?;
+        iter.finish()?;
+
+        let Some(diff) = AdapterImpl::diff_nested_column_types(
+            self.effective_adapter_type(state),
+            source_type,
+            target_type,
+            column_name,
+        ) else {
+            return Ok(none_value());
+        };
+        let entries = |pairs: Vec<(String, String)>| {
+            Value::from(
+                pairs
+                    .into_iter()
+                    .map(|(path, ty)| Value::from(vec![Value::from(path), Value::from(ty)]))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        Ok(Value::from_iter([
+            ("additions", entries(diff.additions)),
+            ("removals", entries(diff.removals)),
+            ("type_changes", entries(diff.type_changes)),
+        ]))
+    }
+
     /// Clean SQL by removing extra whitespace and normalizing format.
     ///
     /// Only available with Databricks adapter.
@@ -4246,6 +4289,8 @@ impl Adapter {
             "parse_columns_and_constraints" => self.parse_columns_and_constraints(state, args),
             // sql: str
             "clean_sql" => self.clean_sql(state, args),
+            // source_type: str, target_type: str, column_name: str
+            "diff_nested_column_types" => self.diff_nested_column_types(state, args),
             // sql: str
             "strip_trailing_statement_terminator" => {
                 self.strip_trailing_statement_terminator(state, args)

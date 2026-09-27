@@ -1815,3 +1815,31 @@ fn trino_arrow_rendering_preserves_nested_types_and_unsigned_range() {
         "DECIMAL(39, 0)"
     );
 }
+
+#[test]
+fn trino_struct_diff_reports_nested_additions_removals_and_type_changes() {
+    let diff = diff_struct_types(
+        Trino,
+        "row(a bigint, b row(c varchar, \"new field\" date), keep integer)",
+        "row(a integer, b row(c varchar, gone double), keep integer)",
+        "payload",
+    )
+    .unwrap();
+    assert_eq!(
+        diff.additions,
+        vec![("payload.b.new field".to_string(), "DATE".to_string())]
+    );
+    assert_eq!(
+        diff.removals,
+        vec![("payload.b.gone".to_string(), "DOUBLE".to_string())]
+    );
+    assert_eq!(
+        diff.type_changes,
+        vec![("payload.a".to_string(), "BIGINT".to_string())]
+    );
+    assert_eq!(diff_struct_types(Trino, "varchar", "row(a int)", "c"), None);
+    assert_eq!(
+        diff_struct_types(Trino, "row(a int)", "ROW(a INTEGER)", "c"),
+        Some(StructTypeDiff::default())
+    );
+}

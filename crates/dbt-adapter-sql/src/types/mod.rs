@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt;
 use std::num::ParseIntError;
@@ -1973,6 +1973,77 @@ fn metadata_type_candidate_keys(backend: AdapterType) -> &'static [&'static str]
         AdapterType::Exasol => &EXASOL_KEYS,
         AdapterType::Trino => &TRINO_KEYS,
         _ => &GENERIC_KEYS,
+    }
+}
+
+/// Leaf-level differences between two struct (Trino `ROW`) column types.
+///
+/// Paths are dot-joined field names below the column, and each entry carries the type
+/// rendered for `backend`. Mirrors dbt-trino v1 `diff_row_types`:
+/// <https://github.com/starburstdata/dbt-trino/blob/v1.10.5/dbt/adapters/trino/row_type_utils.py#L136-L166>
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StructTypeDiff {
+    /// Fields present in the source but not in the target, with the source type.
+    pub additions: Vec<(String, String)>,
+    /// Fields present in the target but not in the source, with the target type.
+    pub removals: Vec<(String, String)>,
+    /// Fields whose type differs, with the new (source) type.
+    pub type_changes: Vec<(String, String)>,
+}
+
+/// Diff two struct column types. Returns `None` unless both types parse as structs.
+pub fn diff_struct_types(
+    backend: AdapterType,
+    source_type: &str,
+    target_type: &str,
+    column: &str,
+) -> Option<StructTypeDiff> {
+    let leaf_paths = |type_str: &str| -> Option<BTreeMap<String, String>> {
+        let (sql_type, _) = SqlType::parse(backend, type_str).ok()?;
+        let SqlType::Struct(Some(_)) = sql_type else {
+            return None;
+        };
+        let mut paths = BTreeMap::new();
+        collect_struct_leaf_paths(backend, &sql_type, column.to_string(), &mut paths);
+        Some(paths)
+    };
+    let source = leaf_paths(source_type)?;
+    let target = leaf_paths(target_type)?;
+
+    let mut diff = StructTypeDiff::default();
+    for (path, source_ty) in &source {
+        match target.get(path) {
+            None => diff.additions.push((path.clone(), source_ty.clone())),
+            Some(target_ty) if !target_ty.eq_ignore_ascii_case(source_ty) => {
+                diff.type_changes.push((path.clone(), source_ty.clone()))
+            }
+            Some(_) => {}
+        }
+    }
+    for (path, target_ty) in &target {
+        if !source.contains_key(path) {
+            diff.removals.push((path.clone(), target_ty.clone()));
+        }
+    }
+    Some(diff)
+}
+
+fn collect_struct_leaf_paths(
+    backend: AdapterType,
+    sql_type: &SqlType,
+    prefix: String,
+    out: &mut BTreeMap<String, String>,
+) {
+    match sql_type {
+        SqlType::Struct(Some(fields)) => {
+            for field in fields {
+                let path = format!("{prefix}.{}", field.name.as_ref());
+                collect_struct_leaf_paths(backend, &field.sql_type, path, out);
+            }
+        }
+        leaf => {
+            out.insert(prefix, leaf.to_string(backend));
+        }
     }
 }
 
