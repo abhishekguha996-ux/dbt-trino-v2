@@ -81,7 +81,7 @@ anything [incremental].
 | `sql_header` (e.g. `set session`) on tables and views | Tested on Memory [basic] |
 | Unit tests | Tested [features] |
 | Unit-test fixture types: dbt-trino v1's type cases (integer, varchar, boolean, date, timestamp, timestamp with time zone, decimal) and `decimal(10,2)` | Tested on Memory and Iceberg [features] |
-| `uuid` values in `run_query`, enforced contracts and unit tests | Tested on Memory and Iceberg [features] |
+| `uuid` values in `run_query`, enforced contracts and unit tests | Tested on Memory and Iceberg [features]. `dbt show` prints a uuid as 32 hex digits (the Arrow display of `FixedSizeBinary(16)`); these paths show the canonical text |
 | Grants (Hive `sql-standard`) with revoke on change, also in a mixed-case schema; the user that runs dbt keeps its own privileges | Tested [features] |
 | `persist_docs` (relation + column comments) | Tested on Hive, Iceberg, Delta; materialized views on Iceberg [features] |
 | Hooks, `on-run-start` / `on-run-end`, `set session` in pre-hooks | Tested [features] |

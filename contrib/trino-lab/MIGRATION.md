@@ -109,6 +109,7 @@ Two YAML details apply to `profiles.yml` and `dbt_project.yml`:
 | Unknown config keys | Errors (`dbt1060`). All dbt-trino keys are recognised: `properties`, `on_table_exists`, `view_security`, `views_enabled`, `sync_nested_columns`, `grace_period`, `file_format`, `table_format` |
 | `dbt docs generate` | Produces a static site in `target/`; use `dbt compile --write-catalog` for `catalog.json` |
 | Unit tests | Same YAML; a failing unit test is recorded as `error` in `run_results.json` |
+| `uuid` values | `run_query`, contracts and unit tests show the canonical text, as v1 does. `dbt show` prints a uuid as 32 hex digits without dashes (the Arrow display of `FixedSizeBinary(16)`) |
 | Static analysis / column lineage | Not part of the dbt v2 OSS build for any adapter; disabled for Trino |
 | Python models | Not supported (as in dbt-trino v1) |
 | Seeds | Same types as v1 (`INTEGER`, `DOUBLE`, `VARCHAR`, `DATE`, `TIMESTAMP`, `BOOLEAN`); whole numbers beyond 32 bits become `BIGINT` instead of failing |

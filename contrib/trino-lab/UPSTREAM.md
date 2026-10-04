@@ -375,6 +375,10 @@ tests panic.
 **Behavior change for all adapters:** an `arrow.uuid` column shows as text instead of crashing
 dbt. A query result that Agate cannot show as text fails with an error instead of a panic.
 
+**Known limit:** `dbt show` prints the Arrow record batch, not an Agate table, so it still shows
+a uuid as 32 hex digits (the Arrow display of `FixedSizeBinary(16)`). `run_query`, contracts
+and unit tests show the canonical text.
+
 **Tests:** an `arrow.uuid` column becomes canonical text (a null stays null); a
 `FixedSizeBinary(16)` column without the extension is not changed; a column that cannot be
 text gives an error, not a panic.
@@ -486,7 +490,8 @@ Each change links the v1 code that it mirrors.
 Exasol. Other adapters behave as before. The fixes for every adapter are in S1 and S2.
 
 **Needs S1 and S2 at run time:** without S1, a uuid value in `run_query`, an enforced contract
-or a unit test crashes dbt. Without S2, unit tests do not compare the `decimal` and
+or a unit test crashes dbt. With S1, these paths show the canonical text; `dbt show` still
+prints a uuid as 32 hex digits. Without S2, unit tests do not compare the `decimal` and
 `timestamp(3)` values that adbc-drivers/trino returns as `Decimal32`, `Decimal64` and
 millisecond timestamps.
 
