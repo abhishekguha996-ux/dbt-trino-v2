@@ -2,7 +2,7 @@
 
 Nothing in this fork has been submitted to dbt-labs/dbt. This is the kit for when you decide
 to. The local clone's `upstream` remote has its push URL disabled on purpose. Facts in this
-file were checked on 3 October 2026.
+file were checked on 3 and 4 October 2026.
 
 Before the first PR, in this order:
 
@@ -257,11 +257,18 @@ so a push of them starts no run.
 
 #15345 ("feat: release of trino inline udfs support", by `helloitu`, open since 24 June 2026)
 is the only other open Trino PR. It adds Trino inline UDFs (issue #15344); it is not an
-adapter. It overlaps this series: it adds `dbt_macro_assets/dbt-trino/dbt_project.yml`
-(Part 4 adds the same file) and changes `TrinoDbConfig` and `adapter_factory.rs` (Part 1) and
-`relation/factory.rs` (Part 2). It has stalled for two reasons: its CLA was never signed
-(`cla-bot` asked four times), and on #15344 dbt Labs replied that inline UDFs "will need more
-discussion" for all adapters.
+adapter. It changes seven files that this series also changes:
+
+- Part 1: `crates/dbt-schemas/src/schemas/profiles.rs` (`TrinoDbConfig`) and
+  `crates/dbt-adapter/src/adapter/adapter_factory.rs`
+- Part 2: `crates/dbt-adapter/src/relation/factory.rs`
+- S1 and Parts 3a, 3b and 4: `crates/dbt-adapter/src/adapter/adapter_impl.rs`
+- Part 4: `crates/dbt-adapter/src/adapter/mod.rs`,
+  `crates/dbt-schemas/src/schemas/project/configs/model_config.rs` and
+  `crates/dbt-loader/src/dbt_macro_assets/dbt-trino/dbt_project.yml` (both add this file)
+
+It has stalled for two reasons: its CLA was never signed (`cla-bot` asked four times), and on
+#15344 dbt Labs replied that inline UDFs "will need more discussion" for all adapters.
 
 - Name #15345 in the Slack message and in the umbrella issue: this series does not include
   inline UDFs, and whichever PR lands second rebases.
@@ -284,7 +291,7 @@ and filed the driver issues.
 > I've signed the CLA. Before I open PRs for #13131, two questions: (1) is anyone at dbt Labs or
 > Starburst already working on a Trino adapter or ADBC driver for v2? (2) Do you prefer parts
 > based on main with a merge plan, like Athena (#16252), or one PR, like Exasol (#15322)? The
-> only open Trino PR, #15345 (inline UDFs), touches four of the same files; my series does not
+> only open Trino PR, #15345 (inline UDFs), touches seven of the same files; my series does not
 > include inline UDFs. I can also hand over a Docker-based Trino test stack for your CI.
 
 ## Umbrella issue
