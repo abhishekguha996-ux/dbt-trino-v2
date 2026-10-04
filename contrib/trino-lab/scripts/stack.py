@@ -33,8 +33,14 @@ TRINO_HOST = os.environ.get("TRINO_HOST", "127.0.0.1")
 TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
 TRINO_HTTP = f"http://{TRINO_HOST}:{TRINO_PORT}"
 
-# Synthetic lab-only credentials. Never reuse outside this stack.
-USERS = {"admin": "admin-lab-password", "user1": "user1-lab-password", "dbt_ldap": "ldap-lab-password"}
+# Synthetic lab-only credentials. Never reuse outside this stack. `special` has a password
+# with URL-special characters.
+USERS = {
+    "admin": "admin-lab-password",
+    "user1": "user1-lab-password",
+    "dbt_ldap": "ldap-lab-password",
+    "special": "p@ss:w/rd%+#?&",
+}
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -67,7 +73,9 @@ def generate() -> None:
             capture_output=True)
         server_pem.write_text(key.read_text() + crt.read_text())
     password_db = GEN / "password.db"
-    if not password_db.exists():
+    users = ({line.split(":", 1)[0] for line in password_db.read_text().splitlines()}
+             if password_db.exists() else set())
+    if users != USERS.keys():  # Trino reloads the password file, so new users work without a restart
         lines = []
         for user, password in USERS.items():
             out = run(["htpasswd", "-B", "-C", "10", "-nb", user, password],

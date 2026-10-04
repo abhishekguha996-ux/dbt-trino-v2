@@ -265,35 +265,19 @@ class TestOnSchemaChange(TrinoTestCase):
 
 
 class TestInsertOverwrite(TrinoTestCase):
-    """v2 addition: Hive partition overwrite (dbt-trino v1 has no insert_overwrite)."""
+    """dbt-trino v1 has no insert_overwrite strategy (its valid strategies are append, merge,
+    delete+insert and microbatch), so dbt rejects it before it creates anything."""
 
-    def model(self, select: str) -> str:
-        return ("{{ config(materialized='incremental', incremental_strategy='insert_overwrite', "
-                "properties={'partitioned_by': \"ARRAY['d']\"}) }} " + select)
-
-    def test_overwrites_only_written_partitions_on_hive(self):
+    def test_rejected_as_not_valid(self):
         for catalog in self.catalogs("hive"):
             with self.subTest(catalog=catalog):
-                p = self.project(catalog, {"models/m.sql": self.model(
-                    "select * from (values (1, 'a', '2024-01-01'), (2, 'b', '2024-01-02')) as t(id, v, d)")})
-                p.dbt("run")
-                p.write("models/m.sql", self.model(
-                    "select * from (values (3, 'c', '2024-01-02'), (4, 'd', '2024-01-03')) as t(id, v, d)"))
-                p.dbt("run")
-                self.assertEqual(p.rows("m", "id"), [[1, "a", "2024-01-01"], [3, "c", "2024-01-02"],
-                                                     [4, "d", "2024-01-03"]])
-                # the session property does not leak into later statements
-                p.dbt("run")
-                self.assertEqual(len(p.rows("m")), 3)
-
-    def test_non_hive_catalog_fails_clearly(self):
-        for catalog in self.catalogs("iceberg"):
-            with self.subTest(catalog=catalog):
-                p = self.project(catalog, {"models/m.sql": self.model("select 1 as id, '2024-01-01' as d")
-                                           .replace("properties={'partitioned_by': \"ARRAY['d']\"}", "")})
-                p.dbt("run")
+                p = self.project(catalog, {"models/m.sql": (
+                    "{{ config(materialized='incremental', incremental_strategy='insert_overwrite') }} "
+                    "select 1 as id")})
                 result = p.dbt("run", expect=False)
-                self.assertIn("requires a Hive connector catalog", result.output)
+                self.assertIn("The incremental strategy 'insert_overwrite' is not valid for this adapter",
+                              result.output)
+                self.assertIsNone(p.type_of("m"))
 
 
 class TestSyncNestedColumns(TrinoTestCase):
@@ -332,6 +316,56 @@ class TestSyncNestedColumns(TrinoTestCase):
                 self.assertEqual(self.payload_type(p).replace('"', ''), "row(x bigint)")
                 self.assertEqual(p.query(f"select id, payload.x from {p.relation('m')} order by id"),
                                  [[1, 1], [3, 3]])
+
+    def test_appended_fields_keep_the_source_order(self):
+        for catalog in self.catalogs("iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {"models/m.sql": self.model(
+                    "append_new_columns", "select 1 as id, cast(row('a1') as row(a varchar)) as payload")})
+                p.dbt("run")
+                p.write("models/m.sql", self.model(
+                    "append_new_columns", "select 2 as id, cast(row('a2', 'z2', 'l2') "
+                    "as row(a varchar, zeta varchar, alpha varchar)) as payload"))
+                p.dbt("run")
+                self.assertEqual(self.payload_type(p).replace('"', ''), "row(a varchar, zeta varchar, alpha varchar)")
+                self.assertEqual(
+                    p.query(f"select id, payload.a, payload.zeta, payload.alpha from {p.relation('m')} order by id"),
+                    [[1, "a1", None, None], [2, "a2", "z2", "l2"]])
+
+    def test_appended_nested_row_field(self):
+        for catalog in self.catalogs("iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {"models/m.sql": self.model(
+                    "append_new_columns", "select 1 as id, cast(row('a1') as row(a varchar)) as payload")})
+                p.dbt("run")
+                p.write("models/m.sql", self.model(
+                    "append_new_columns", "select 2 as id, cast(row('a2', row(7, 'y2')) "
+                    "as row(a varchar, sub row(x integer, y varchar))) as payload"))
+                p.dbt("run")
+                self.assertEqual(self.payload_type(p).replace('"', ''),
+                                 "row(a varchar, sub row(x integer, y varchar))")
+                self.assertEqual(p.query(f"select id, payload.sub.x, payload.sub.y from {p.relation('m')} order by id"),
+                                 [[1, None, None], [2, 7, "y2"]])
+
+    def test_field_inserted_mid_row_requires_full_refresh(self):
+        # Trino matches ROW fields by position on INSERT and MERGE, and ADD COLUMN appends a field
+        # at the end, so values would land in the wrong fields (dbt-trino v1 swaps them silently).
+        for catalog in self.catalogs("iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {"models/m.sql": self.model(
+                    "append_new_columns", "select 1 as id, cast(row('a1', 'b1') as row(a varchar, b varchar)) as payload")})
+                p.dbt("run")
+                p.write("models/m.sql", self.model(
+                    "append_new_columns", "select 2 as id, cast(row('a2', 'm2', 'b2') "
+                    "as row(a varchar, m varchar, b varchar)) as payload"))
+                output = p.dbt("run", expect=False).output
+                self.assertIn("payload", output)
+                self.assertIn("--full-refresh", output)
+                self.assertEqual(p.query(f"select id, payload.a, payload.b from {p.relation('m')}"), [[1, "a1", "b1"]])
+                p.dbt("run", "--full-refresh")
+                self.assertEqual(self.payload_type(p).replace('"', ''), "row(a varchar, m varchar, b varchar)")
+                self.assertEqual(p.query(f"select id, payload.a, payload.m, payload.b from {p.relation('m')}"),
+                                 [[2, "a2", "m2", "b2"]])
 
 
 if __name__ == "__main__":

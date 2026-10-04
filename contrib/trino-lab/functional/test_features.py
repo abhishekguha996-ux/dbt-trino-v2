@@ -94,6 +94,44 @@ class TestMaterializedViews(TrinoTestCase):
                 p.dbt("run")
                 self.assertEqual(p.type_of("m"), "materialized_view")
 
+    def test_mixed_case_names_refresh(self):
+        # Trino stores catalog, schema and table names in lowercase; the second run must find the
+        # materialized view and refresh it (dbt-trino v1 lowercases them in its metadata queries).
+        for catalog in self.catalogs("iceberg"):
+            for mv, mixed_case in (("MyMV", "schema"), ("mv", "catalog")):
+                with self.subTest(catalog=catalog, model=mv, mixed_case=mixed_case):
+                    p = self.project(catalog, {
+                        "models/base.sql": "{{ config(materialized='table') }} select 1 as id",
+                        f"models/{mv}.sql": "{{ config(materialized='materialized_view') }} "
+                                            "select id from {{ ref('base') }}",
+                    })
+                    if mixed_case == "schema":
+                        p.write_profile(schema=p.schema.title())
+                    else:
+                        p.write_profile(database=catalog.title())
+                    p.dbt("run")
+                    p.write("models/base.sql", "{{ config(materialized='table') }} select 2 as id")
+                    p.dbt("run")
+                    self.assertEqual(p.type_of(mv), "materialized_view")
+                    self.assertEqual(p.rows(mv), [[2]])
+
+    def test_failed_full_refresh_keeps_the_view(self):
+        # Full refresh uses CREATE OR REPLACE MATERIALIZED VIEW, which keeps the old view when the
+        # new definition fails (dbt-trino v1 drops it first).
+        for catalog in self.catalogs("iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/base.sql": "{{ config(materialized='table') }} select 1 as id",
+                    "models/mv.sql": "{{ config(materialized='materialized_view') }} select id from {{ ref('base') }}",
+                })
+                p.dbt("run")
+                p.write("models/mv.sql",
+                        "{{ config(materialized='materialized_view') }} select missing_column from {{ ref('base') }}")
+                result = p.dbt("run", "--full-refresh", "--select", "mv", expect=False)
+                self.assertIn("Column 'missing_column' cannot be resolved", result.output)
+                self.assertEqual(p.type_of("mv"), "materialized_view")
+                self.assertEqual(p.rows("mv"), [[1]])
+
 
 class TestGrants(TrinoTestCase):
     def test_grant_and_revoke(self):
@@ -114,6 +152,50 @@ class TestGrants(TrinoTestCase):
                     f"select privilege_type from {catalog}.information_schema.table_privileges "
                     f"where table_schema = '{p.schema}' and table_name = 'm' and grantee = 'user1'")
                 self.assertEqual(grants, [["INSERT"]])
+
+    @staticmethod
+    def grants(p, grantee: str) -> list[list]:
+        return p.query(
+            f"select table_name, privilege_type from {p.catalog}.information_schema.table_privileges "
+            f"where table_schema = '{p.schema}' and grantee = '{grantee}' order by 1, 2")
+
+    def test_revoke_in_mixed_case_schema(self):
+        def models(grantees: list[str]) -> dict[str, str]:
+            grants = {"select": grantees}
+            return {
+                "models/gv.sql": f"{{{{ config(materialized='view', grants={grants}) }}}} select 1 as id",
+                "models/gi.sql": f"{{{{ config(materialized='incremental', grants={grants}) }}}} select 1 as id",
+            }
+
+        for catalog in self.catalogs("hive"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, models(["user1", "dbt_ldap"]))
+                p.write_profile(schema=p.schema.title())  # the same schema, spelled in mixed case
+                p.dbt("run")
+                for path, content in models(["user1"]).items():
+                    p.write(path, content)
+                result = p.dbt("run", expect=None)
+                self.assertEqual(self.grants(p, "dbt_ldap"), [])
+                self.assertEqual(self.grants(p, "user1"), [["gi", "SELECT"], ["gv", "SELECT"]])
+                self.assertEqual(result.returncode, 0, result)
+
+    def test_owner_keeps_its_own_privileges(self):
+        # dbt connects as the schema owner without the admin role. Revoking grantees that are not
+        # in the config must not revoke the owner's own privileges (dbt-trino v1 does, and the
+        # third run then fails with Access Denied).
+        for catalog in self.catalogs("hive"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/oi.sql": "{{ config(materialized='incremental', grants={'select': ['dbt_ldap']}) }} "
+                                     "select 1 as id",
+                }, profile_overrides={"user": "user1", "roles": None})
+                run_sql(f"alter schema {catalog}.{p.schema} set authorization user user1")
+                for _ in range(3):
+                    p.dbt("run")
+                self.assertEqual(p.rows("oi"), [[1], [1], [1]])
+                self.assertEqual(self.grants(p, "user1"),
+                                 [["oi", "DELETE"], ["oi", "INSERT"], ["oi", "SELECT"], ["oi", "UPDATE"]])
+                self.assertEqual(self.grants(p, "dbt_ldap"), [["oi", "SELECT"]])
 
 
 class TestPersistDocs(TrinoTestCase):
@@ -155,6 +237,33 @@ class TestPersistDocs(TrinoTestCase):
                     "select comment from system.metadata.table_comments "
                     f"where catalog_name = '{catalog}' and schema_name = '{p.schema}' and table_name = 't'"),
                     [["Table's description"]])
+
+    def test_materialized_view_comments(self):
+        # Trino has no COMMENT ON MATERIALIZED VIEW: the relation comment is part of CREATE
+        # MATERIALIZED VIEW, and column comments use COMMENT ON COLUMN (dbt-trino v1 fails).
+        for catalog in self.catalogs("iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/mv.sql": "{{ config(materialized='materialized_view') }} select 1 as id",
+                    "models/schema.yml": """
+                        version: 2
+                        models:
+                          - name: mv
+                            description: "MV's description"
+                            columns:
+                              - name: id
+                                description: "Id's column"
+                    """,
+                }, "models:\n  +persist_docs:\n    relation: true\n    columns: true\n")
+                for args in ((), (), ("--full-refresh",)):  # create, refresh, replace
+                    p.dbt("run", *args)
+                    self.assertEqual(p.query(
+                        "select comment from system.metadata.materialized_views "
+                        f"where catalog_name = '{catalog}' and schema_name = '{p.schema}' and name = 'mv'"),
+                        [["MV's description"]])
+                    self.assertEqual(p.query(
+                        f"select comment from {catalog}.information_schema.columns "
+                        f"where table_schema = '{p.schema}' and table_name = 'mv'"), [["Id's column"]])
 
 
 class TestContracts(TrinoTestCase):
@@ -314,6 +423,112 @@ class TestUnitTests(TrinoTestCase):
                 self.assertIn("11 -> 10", result.output)
 
 
+class TestUnitTestingTypes(TrinoTestCase):
+    """dbt-trino v1 TestTrinoUnitTestingTypesTrinoStarburst (dbt-tests-adapter
+    BaseUnitTestingTypes) plus a decimal with a scale: each value passes through a unit-test
+    fixture unchanged."""
+
+    DATA_TYPES = [  # sql_value, yaml_value
+        ("1", "1"),
+        ("'1'", "1"),
+        ("true", "true"),
+        ("DATE '2020-01-02'", "2020-01-02"),
+        ("TIMESTAMP '2013-11-03 00:00:00'", "2013-11-03 00:00:00"),
+        ("TIMESTAMP '2013-11-03 00:00:00-0'", "2013-11-03 00:00:00-0"),
+        ("DECIMAL '1'", "1"),
+        ("CAST(12.34 AS DECIMAL(10, 2))", "12.34"),
+    ]
+
+    def test_fixture_types(self):
+        for catalog in self.catalogs("memory", "iceberg"):
+            p = self.project(catalog, {
+                "models/my_model.sql": "select tested_column from {{ ref('my_upstream_model') }}",
+            })
+            for sql_value, yaml_value in self.DATA_TYPES:
+                with self.subTest(catalog=catalog, sql_value=sql_value):
+                    p.write("models/my_upstream_model.sql", f"select {sql_value} as tested_column")
+                    p.write("models/unit.yml", f"""
+                        unit_tests:
+                          - name: test_my_model
+                            model: my_model
+                            given:
+                              - input: ref('my_upstream_model')
+                                rows:
+                                  - {{tested_column: {yaml_value}}}
+                            expect:
+                              rows:
+                                - {{tested_column: {yaml_value}}}
+                    """)
+                    p.dbt("run", "--select", "my_upstream_model")
+                    result = p.dbt("test", "--select", "test_type:unit", expect=None)
+                    self.assertEqual(result.status("test_my_model"), "pass", result)
+
+
+class TestUuid(TrinoTestCase):
+    """The ADBC driver returns Trino uuid values as 16-byte binaries; dbt shows them as text."""
+
+    UUID = "12151fd2-7586-11e9-8f9e-2a86e4085a59"
+
+    def test_run_query(self):
+        for catalog in self.catalogs("memory"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {"macros/show_uuid.sql": f"""
+                    {{% macro show_uuid() %}}
+                      {{% set r = run_query("select uuid '{self.UUID}' as u, cast(null as uuid) as n") %}}
+                      {{{{ log('UUID=' ~ r.rows[0][0] ~ ' NULL=' ~ r.rows[0][1], info=true) }}}}
+                    {{% endmacro %}}
+                """})
+                self.assertIn(f"UUID={self.UUID} NULL=None", p.dbt("run-operation", "show_uuid").output)
+
+    def test_enforced_contract(self):
+        for catalog in self.catalogs("memory", "iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/c.sql": f"{{{{ config(materialized='table') }}}} select uuid '{self.UUID}' as id, 'a' as name",
+                    "models/schema.yml": """
+                        version: 2
+                        models:
+                          - name: c
+                            config:
+                              contract: {enforced: true}
+                            columns:
+                              - name: id
+                                data_type: uuid
+                              - name: name
+                                data_type: varchar
+                    """,
+                })
+                p.dbt("run")
+                self.assertEqual(p.rows("c"), [[self.UUID, "a"]])
+                types = dict(p.query(
+                    f"select column_name, data_type from {catalog}.information_schema.columns "
+                    f"where table_schema = '{p.schema}' and table_name = 'c'"))
+                self.assertEqual(types["id"], "uuid")
+
+    def test_unit_test_fixture(self):
+        for catalog in self.catalogs("memory", "iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/src.sql": f"select uuid '{self.UUID}' as u, 1 as n",
+                    "models/m.sql": "select u, n * 2 as doubled from {{ ref('src') }}",
+                    "models/unit.yml": f"""
+                        unit_tests:
+                          - name: keeps_uuid
+                            model: m
+                            given:
+                              - input: ref('src')
+                                rows:
+                                  - {{u: '{self.UUID}', n: 1}}
+                            expect:
+                              rows:
+                                - {{u: '{self.UUID}', doubled: 2}}
+                    """,
+                })
+                p.dbt("run")
+                result = p.dbt("test", "--select", "test_type:unit", expect=None)
+                self.assertEqual(result.status("keeps_uuid"), "pass", result)
+
+
 class TestHooksAndSession(TrinoTestCase):
     def test_hooks_and_set_session(self):
         for catalog in self.catalogs("memory"):
@@ -383,6 +598,16 @@ class TestCrossDatabaseMacros(TrinoTestCase):
                 self.assertEqual(row[4:7], ["a,b", "b", "lo"])
                 self.assertEqual(row[7], 12)
                 self.assertEqual(len(p.rows("spine")), 4)
+
+    def test_string_literal_matches_dbt_default(self):
+        # dbt.string_literal quotes without escaping, as on every other adapter; callers escape.
+        for catalog in self.catalogs("memory"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/s.sql": """select {{ dbt.string_literal(dbt.escape_single_quotes("O'Brien")) }} as name""",
+                })
+                p.dbt("run")
+                self.assertEqual(p.rows("s"), [["O'Brien"]])
 
 
 class TestCommands(TrinoTestCase):
@@ -468,6 +693,25 @@ class TestCommands(TrinoTestCase):
                 p.dbt("clone", "--state", str(state))
                 cloned = run_sql(f"select count(*) from {catalog}.\"{p.schema}_custom\".t")
                 self.assertEqual(cloned, [[2]])
+
+    def test_defer_without_favor_state(self):
+        # The relation cache is hydrated at startup, so dbt knows that `a` is missing from the
+        # development schema and defers to the state relation (as dbt-trino v1 does).
+        for catalog in self.catalogs("memory", "iceberg"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/a.sql": "{{ config(materialized='table') }} select 1 as id",
+                    "models/b.sql": "{{ config(materialized='table') }} select id from {{ ref('a') }}",
+                })
+                p.dbt("run")
+                state = p.dir / "state"
+                (p.dir / "target").rename(state)
+                p.write_profile(schema=p.schema + "_custom")
+                if catalog != "memory":
+                    run_sql(f"create schema if not exists {catalog}.{p.schema}_custom "
+                            f"with (location = 's3://datalake/{catalog}/{p.schema}_custom')")
+                p.dbt("run", "--select", "b", "--defer", "--state", str(state))
+                self.assertEqual(run_sql(f'select id from {catalog}."{p.schema}_custom".b'), [[1]])
 
 
 if __name__ == "__main__":

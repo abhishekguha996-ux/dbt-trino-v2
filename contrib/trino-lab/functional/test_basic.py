@@ -9,7 +9,9 @@ with dbt-trino v1), so Delta projects use `on_table_exists: replace`.
 
 import unittest
 
-from harness import TrinoError, TrinoTestCase
+from harness import S3_BUCKET, TrinoError, TrinoTestCase, run_sql
+
+ROW_LEVEL = ("iceberg", "delta")
 
 SEED = """
 id,name,some_date
@@ -137,6 +139,24 @@ class TestOnTableExists(TrinoTestCase):
                 self.assertEqual(p.rows("m"), [[1]])
                 self.assertRegex(result.output.lower(), r"create table if not exists")
 
+    def test_failed_switch_from_view_keeps_the_view(self):
+        # rename and skip build the table before they drop the view (dbt-trino v1 keeps the view
+        # in rename mode too); Delta Lake cannot rename, so it uses drop or replace.
+        for catalog in self.catalogs("memory", "hive", "iceberg"):
+            for mode in ("rename", "skip"):
+                with self.subTest(catalog=catalog, on_table_exists=mode):
+                    p = self.project(catalog, {"models/m.sql": "{{ config(materialized='view') }} select 1 as id"})
+                    p.dbt("run")
+                    table = f"{{{{ config(materialized='table', on_table_exists='{mode}') }}}} "
+                    p.write("models/m.sql", table + "select cast('x' as integer) as id")
+                    self.assertIn("Cannot cast 'x' to INT", p.dbt("run", expect=False).output)
+                    self.assertEqual(p.type_of("m"), "view")
+                    self.assertEqual(p.rows("m"), [[1]])
+                    p.write("models/m.sql", table + "select 2 as id")
+                    p.dbt("run")
+                    self.assertEqual(p.type_of("m"), "table")
+                    self.assertEqual(p.rows("m"), [[2]])
+
 
 class TestViewSecurity(TrinoTestCase):
     def test_definer_and_invoker(self):
@@ -196,6 +216,19 @@ class TestTableProperties(TrinoTestCase):
                 result = p.dbt("run", expect=False)
                 self.assertIn("either 'file_format' or 'properties.format'", result.output)
 
+    def test_storage_uri_sets_location(self):
+        # dbt-trino v1 maps storage_uri to `location` through its default catalog integration.
+        # The Hive connector calls this property external_location, so Hive is not covered.
+        for catalog in self.catalogs("iceberg", "delta"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {})
+                location = f"{S3_BUCKET}/{catalog}/{p.schema}/m_storage_uri"
+                p.write("models/m.sql",
+                        f"{{{{ config(materialized='table', storage_uri='{location}') }}}} select 1 as id")
+                p.dbt("run")
+                self.assertIn(f"location = '{location}'", p.query(f"show create table {p.relation('m')}")[0][0])
+                self.assertEqual(p.rows("m"), [[1]])
+
 
 class TestSqlHeader(TrinoTestCase):
     def test_sql_header_session_property(self):
@@ -212,6 +245,73 @@ class TestSqlHeader(TrinoTestCase):
                 })
                 p.dbt("run")
                 self.assertEqual(p.rows("m"), [[1]])
+
+
+class TestMixedCaseNames(TrinoTestCase):
+    """Trino stores schema and table names in lowercase, even when they are quoted, so the second
+    build must find the relations of the first one.
+
+    Modeled on dbt-trino v1 test_quote_policy.py (schema "sChEmAWiThMiXeDCaSe") and
+    test_caching.py (TestCachingUppercaseModel).
+    """
+
+    SNAPSHOT = """
+        {% snapshot snap %}
+        {{ config(unique_key='id', strategy='check', check_cols='all') }}
+        select * from {{ ref('base') }}
+        {% endsnapshot %}
+    """
+
+    def test_mixed_case_profile_schema(self):
+        for catalog in self.catalogs():
+            with self.subTest(catalog=catalog):
+                files = {
+                    "seeds/base.csv": "id\n1\n2\n",
+                    "models/tbl.sql": "{{ config(materialized='table') }} select * from {{ ref('base') }}",
+                    "models/vw.sql": "{{ config(materialized='view') }} select * from {{ ref('tbl') }}",
+                    "models/inc.sql": "{{ config(materialized='incremental') }} select * from {{ ref('base') }}",
+                }
+                if catalog in ROW_LEVEL:
+                    files["snapshots/snap.sql"] = self.SNAPSHOT
+                p = self.project(catalog, files, table_mode(catalog))
+                p.write_profile(schema=p.schema.title())  # the same schema, spelled in mixed case
+                p.dbt("build")
+                p.dbt("build")
+                self.assertEqual(p.type_of("tbl"), "table")
+                self.assertEqual(p.type_of("vw"), "view")
+                self.assertEqual(p.rows("base"), [[1], [2]])
+                self.assertEqual(p.rows("vw"), [[1], [2]])
+                self.assertEqual(p.rows("inc"), [[1], [1], [2], [2]])
+                if catalog in ROW_LEVEL:
+                    self.assertEqual(len(p.rows("snap")), 2)
+
+    def test_mixed_case_custom_schema(self):
+        for catalog in self.catalogs():
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/tbl.sql": "{{ config(materialized='table') }} select 1 as id",
+                    "models/inc.sql": "{{ config(materialized='incremental') }} select 1 as id",
+                }, "models:\n  +schema: Custom\n" + ("  +on_table_exists: replace\n" if catalog == "delta" else ""))
+                p.dbt("run")
+                p.dbt("run")
+                custom = f'{catalog}."{p.schema}_custom"'
+                self.assertEqual(run_sql(f"select * from {custom}.tbl"), [[1]])
+                self.assertEqual(run_sql(f"select * from {custom}.inc"), [[1], [1]])
+
+    def test_mixed_case_model_name_and_alias(self):
+        for catalog in self.catalogs():
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {
+                    "models/Customers.sql": "{{ config(materialized='table') }} select 1 as id",
+                    "models/aliased.sql": "{{ config(materialized='table', alias='MyTable') }} select 2 as id",
+                    "models/Orders.sql": "{{ config(materialized='incremental') }} select 3 as id",
+                }, table_mode(catalog))
+                p.dbt("run")
+                p.dbt("run")
+                self.assertEqual(p.type_of("Customers"), "table")
+                self.assertEqual(p.rows("Customers"), [[1]])
+                self.assertEqual(p.rows("MyTable"), [[2]])
+                self.assertEqual(p.rows("Orders"), [[3], [3]])
 
 
 if __name__ == "__main__":

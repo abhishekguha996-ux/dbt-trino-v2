@@ -64,6 +64,8 @@ def run_sql(statement: str, user: str = "admin", catalog: str | None = None) -> 
 
 
 def relation_type(catalog: str, schema: str, name: str) -> str | None:
+    # Trino stores schema and table names in lowercase, even when they are quoted.
+    schema, name = schema.lower(), name.lower()
     rows = run_sql(
         f"select table_type from {catalog}.information_schema.tables "
         f"where table_schema = '{schema}' and table_name = '{name}'"

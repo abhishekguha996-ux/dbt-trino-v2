@@ -136,6 +136,17 @@ class TestSessionLimits(TrinoTestCase):
 
 
 class TestPackagesAndUnsupported(TrinoTestCase):
+    # dbt v2 accepts a catalogs.yml entry only with another adapter's config block.
+    CATALOGS_YML = """
+        catalogs:
+          - name: lake
+            type: hive_metastore
+            table_format: default
+            config:
+              databricks:
+                file_format: parquet
+    """
+
     def test_dbt_utils(self):
         for catalog in self.catalogs("memory"):
             with self.subTest(catalog=catalog):
@@ -162,12 +173,21 @@ class TestPackagesAndUnsupported(TrinoTestCase):
                 self.assertEqual(len(p.rows("u")), 2)
 
     def test_catalog_integration_not_supported_yet(self):
+        model = "{{ config(materialized='table', catalog_name='lake') }} select 1 as id"
         for catalog in self.catalogs("iceberg"):
-            with self.subTest(catalog=catalog):
-                p = self.project(catalog, {"models/m.sql": "{{ config(materialized='table', catalog_name='lake') }} select 1 as id"})
+            with self.subTest(catalog=catalog, catalogs_yml=False):
+                p = self.project(catalog, {"models/m.sql": model})
                 result = p.dbt("run", expect=False)
-                self.assertRegex(result.output.lower(), r"catalog")
+                self.assertIn("catalog_name", result.output)
+                self.assertNotIn("Internal Error", result.output)
                 self.assertNotIn("panicked", result.output)
+            with self.subTest(catalog=catalog, catalogs_yml=True):
+                p = self.project(catalog, {"models/m.sql": model, "catalogs.yml": self.CATALOGS_YML})
+                result = p.dbt("run", expect=False)
+                self.assertIn("catalogs.yml catalog integrations (catalog_name) are not supported by the Trino "
+                              "adapter yet. Remove catalog_name and use properties, file_format or table_format.",
+                              result.output)
+                self.assertIsNone(p.type_of("m"))
 
     def test_python_models_rejected(self):
         for catalog in self.catalogs("memory"):
