@@ -1,0 +1,21 @@
+name: trino_retail
+version: '1.0.0'
+config-version: 2
+profile: trino_lab
+model-paths: [models]
+seed-paths: [seeds]
+test-paths: [tests]
+models:
+  trino_retail:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: ephemeral
+    marts:
+      +materialized: table
+seeds:
+  trino_retail:
+    edge_values:
+      +column_types:
+        amount: decimal(18,2)
+        event_date: date
