@@ -20,7 +20,7 @@ MODEL = {"models/m.sql": "{{ config(materialized='view') }} select 1 as id"}
 
 class TestAuthentication(TrinoTestCase):
     def https_project(self, **profile):
-        base = {"host": "localhost", "port": 8443, "roles": None}
+        base = {"port": 8443, "roles": None}
         base.update(profile)
         return self.project("memory", MODEL, profile_overrides=base)
 

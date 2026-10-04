@@ -10,12 +10,16 @@ openssl and htpasswd CLIs are used.
     python3 scripts/stack.py reset     # stop and delete this stack's volumes
     python3 scripts/stack.py jwt USER  # print a JWT for USER
     python3 scripts/stack.py sql "select 1"
+
+TRINO_HOST and TRINO_PORT (default 127.0.0.1 and 8080) select the HTTP endpoint that the
+readiness probe and `sql` use.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import os
 import subprocess
 import sys
 import time
@@ -25,6 +29,9 @@ from pathlib import Path
 STACK = Path(__file__).resolve().parent.parent / "stack"
 GEN = STACK / ".generated"
 COMPOSE = ["docker", "compose", "-f", str(STACK / "compose.yaml")]
+TRINO_HOST = os.environ.get("TRINO_HOST", "127.0.0.1")
+TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
+TRINO_HTTP = f"http://{TRINO_HOST}:{TRINO_PORT}"
 
 # Synthetic lab-only credentials. Never reuse outside this stack.
 USERS = {"admin": "admin-lab-password", "user1": "user1-lab-password", "dbt_ldap": "ldap-lab-password"}
@@ -90,7 +97,7 @@ def jwt(user: str, ttl: int = 3600) -> str:
 def sql(statement: str, user: str = "admin") -> list:
     """Run a statement over HTTP using Trino's REST protocol; return all rows."""
     headers = {"X-Trino-User": user, "X-Trino-Role": "hive=ROLE{admin}"}
-    req = urllib.request.Request("http://127.0.0.1:8080/v1/statement", data=statement.encode(),
+    req = urllib.request.Request(f"{TRINO_HTTP}/v1/statement", data=statement.encode(),
                                  headers=headers)
     rows: list = []
     with urllib.request.urlopen(req) as resp:
@@ -111,7 +118,7 @@ def wait_ready(timeout: int = 300) -> None:
     last = None
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen("http://127.0.0.1:8080/v1/info", timeout=3) as resp:
+            with urllib.request.urlopen(f"{TRINO_HTTP}/v1/info", timeout=3) as resp:
                 if not json.load(resp).get("starting", True):
                     # Metastore reachable and S3 writable?
                     for catalog in ("hive", "iceberg", "delta"):
@@ -135,7 +142,7 @@ def main(argv: list[str]) -> None:
         generate()
         run(COMPOSE + ["up", "-d"])
         wait_ready()
-        print("Trino ready: http://localhost:8080 (none), https://localhost:8443 (ldap/jwt)")
+        print(f"Trino ready: {TRINO_HTTP} (none), https://{TRINO_HOST}:8443 (ldap/jwt)")
         print(f"CA certificate: {GEN / 'ca.crt'}")
     elif cmd == "down":
         run(COMPOSE + ["stop"])

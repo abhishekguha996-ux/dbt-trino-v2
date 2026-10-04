@@ -6,8 +6,11 @@ runs the source-built `dbt` binary, and inspects results directly through Trino'
 
 Environment:
   DBT_BIN          path to the dbt binary (default: <repo>/target/debug/dbt)
-  TRINO_HTTP       http://127.0.0.1:8080 by default (scripts/stack.py)
+  TRINO_HOST       Trino host for generated profiles and REST checks (default: 127.0.0.1)
+  TRINO_PORT       Trino HTTP port (default: 8080, see scripts/stack.py)
   TRINO_CATALOGS   comma-separated catalogs to exercise (default: memory,hive,iceberg,delta)
+  SCHEMA_PREFIX    prefix of the test schemas (default: ft_)
+  KEEP_SCHEMAS     1 keeps test schemas and project directories for inspection
 """
 
 from __future__ import annotations
@@ -27,8 +30,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 DBT_BIN = Path(os.environ.get("DBT_BIN", REPO / "target" / "debug" / "dbt"))
-TRINO_HTTP = os.environ.get("TRINO_HTTP", "http://127.0.0.1:8080")
+TRINO_HOST = os.environ.get("TRINO_HOST", "127.0.0.1")
+TRINO_PORT = int(os.environ.get("TRINO_PORT", "8080"))
+TRINO_HTTP = f"http://{TRINO_HOST}:{TRINO_PORT}"
 CATALOGS = [c for c in os.environ.get("TRINO_CATALOGS", "memory,hive,iceberg,delta").split(",") if c]
+SCHEMA_PREFIX = os.environ.get("SCHEMA_PREFIX", "ft_")
 KEEP = os.environ.get("KEEP_SCHEMAS") == "1"
 S3_BUCKET = "s3://datalake"
 
@@ -123,7 +129,7 @@ class Project:
     def __init__(self, name: str, catalog: str, files: dict[str, str], project_config: str = "",
                  profile_overrides: dict | None = None):
         self.catalog = catalog
-        self.schema = f"ft_{re.sub(r'[^a-z0-9_]', '_', name.lower())}_{uuid.uuid4().hex[:6]}"
+        self.schema = f"{SCHEMA_PREFIX}{re.sub(r'[^a-z0-9_]', '_', name.lower())}_{uuid.uuid4().hex[:6]}"
         self.dir = Path(tempfile.mkdtemp(prefix=f"dbt_trino_{name}_"))
         self.profile_overrides = profile_overrides or {}
         for path, content in files.items():
@@ -145,8 +151,8 @@ class Project:
         output = {
             "type": "trino",
             "method": "none",
-            "host": "localhost",
-            "port": 8080,
+            "host": TRINO_HOST,
+            "port": TRINO_PORT,
             "user": "admin",
             "database": self.catalog,
             "schema": self.schema,
