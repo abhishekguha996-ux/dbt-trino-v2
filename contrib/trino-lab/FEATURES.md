@@ -43,7 +43,7 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | `properties`, `file_format`, `table_format` | – | ✓ | ✓ | ✓ | basic |
 | `storage_uri` sets `location` | – | –² | ✓ | ✓ | basic |
 | view ↔ table switch | ✓ | ✓ | ✓ | ✓ | basic |
-| a failed view → table switch keeps the view (`rename`, `skip`) | ✓ | ✓ | ✓ | ✗¹ | basic |
+| a failed view → table switch keeps the view (`rename`) | ✓ | ✓ | ✓ | ✗¹ | basic |
 | materialized view (create, refresh, full refresh, `grace_period`, mixed-case names) | – | – | ✓ | – | features |
 | a failed materialized-view full refresh keeps the view | – | – | ✓ | – | features |
 | snapshots: timestamp, check, `hard_deletes` invalidate / new_record | – | – | ✓ | ✓ | features, more |

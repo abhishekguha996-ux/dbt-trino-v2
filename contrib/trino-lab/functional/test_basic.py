@@ -140,22 +140,33 @@ class TestOnTableExists(TrinoTestCase):
                 self.assertRegex(result.output.lower(), r"create table if not exists")
 
     def test_failed_switch_from_view_keeps_the_view(self):
-        # rename and skip build the table before they drop the view (dbt-trino v1 keeps the view
-        # in rename mode too); Delta Lake cannot rename, so it uses drop or replace.
+        # rename builds the table before it drops the view, as dbt-trino v1's rename mode does;
+        # drop, replace and skip drop the view first. Delta Lake cannot rename tables.
         for catalog in self.catalogs("memory", "hive", "iceberg"):
-            for mode in ("rename", "skip"):
-                with self.subTest(catalog=catalog, on_table_exists=mode):
-                    p = self.project(catalog, {"models/m.sql": "{{ config(materialized='view') }} select 1 as id"})
-                    p.dbt("run")
-                    table = f"{{{{ config(materialized='table', on_table_exists='{mode}') }}}} "
-                    p.write("models/m.sql", table + "select cast('x' as integer) as id")
-                    self.assertIn("Cannot cast 'x' to INT", p.dbt("run", expect=False).output)
-                    self.assertEqual(p.type_of("m"), "view")
-                    self.assertEqual(p.rows("m"), [[1]])
-                    p.write("models/m.sql", table + "select 2 as id")
-                    p.dbt("run")
-                    self.assertEqual(p.type_of("m"), "table")
-                    self.assertEqual(p.rows("m"), [[2]])
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {"models/m.sql": "{{ config(materialized='view') }} select 1 as id"})
+                p.dbt("run")
+                table = "{{ config(materialized='table', on_table_exists='rename') }} "
+                p.write("models/m.sql", table + "select cast('x' as integer) as id")
+                self.assertIn("Cannot cast 'x' to INT", p.dbt("run", expect=False).output)
+                self.assertEqual(p.type_of("m"), "view")
+                self.assertEqual(p.rows("m"), [[1]])
+                p.write("models/m.sql", table + "select 2 as id")
+                p.dbt("run")
+                self.assertEqual(p.type_of("m"), "table")
+                self.assertEqual(p.rows("m"), [[2]])
+
+    def test_skip_switches_a_view_to_a_table_on_delta(self):
+        # skip drops the view before it creates the table, so it needs no rename.
+        for catalog in self.catalogs("delta"):
+            with self.subTest(catalog=catalog):
+                p = self.project(catalog, {"models/m.sql": "{{ config(materialized='view') }} select 1 as id"})
+                p.dbt("run")
+                p.write("models/m.sql", "{{ config(materialized='table', on_table_exists='skip') }} select 2 as id")
+                p.dbt("run")
+                self.assertEqual(p.type_of("m"), "table")
+                self.assertEqual(p.rows("m"), [[2]])
+                self.assertIsNone(p.type_of("m__dbt_tmp"))
 
 
 class TestViewSecurity(TrinoTestCase):
