@@ -327,11 +327,20 @@ Every PR uses the repository template: first line `Resolves #<umbrella issue>`, 
 Problem, Solution and the checklist. Add "Related: #13131". Do not write "Resolves #13131":
 that issue is "Release Starburst Trino support", and `AdapterType::Starburst` stays
 `todo!()`. S1 and S2 fix bugs for every adapter: open a bug issue for each, start the PR with
-`Resolves #<that issue>`, and add "Related: #<umbrella issue>". Each part has one `changie`
-entry (`--custom project=dbt-core --custom issue=13131 --custom author=abhishekguha996-ux`):
-"Fixes" for S1 and S2 (without the `[Trino]` prefix), "Under the Hood" for Parts 0 and 3a,
-"Features" for the others. The S1 and S2 entries name issue 13131; when their bug issues
-exist, set `issue` in each entry to its bug issue.
+`Resolves #<that issue>`, and add "Related: #<umbrella issue>".
+
+Each part has one `changie` entry: "Fixes" for S1 and S2 (without the `[Trino]` prefix),
+"Under the Hood" for Parts 0 and 3a, "Features" for the others. To make an entry again, run
+this from the repository root:
+
+```sh
+changie new --kind "<kind>" --body "<text>" --custom issue=13131 \
+  --custom author=abhishekguha996-ux --interactive=false
+```
+
+Do not pass `--custom project=dbt-core`: changie rejects it, because `.changie.yaml` adds
+`project: dbt-core` itself (the example in `AGENTS.md` still passes it). The S1 and S2 entries
+name issue 13131; when their bug issues exist, set `issue` in each entry to its bug issue.
 
 ### Part 0 — `fix(adbc): redact accessToken URI parameters in Builder Debug output`
 
