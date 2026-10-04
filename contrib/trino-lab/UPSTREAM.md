@@ -316,11 +316,12 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > https://github.com/abhishekguha996-ux/dbt-trino-v2/tree/trino-pr/integration/contrib/trino-lab.
 > The fork's CI runs both with the Linux x86_64 release binary.
 >
-> **Questions for dbt Labs:** the PR shape; Product/DX approval for the six model config keys
-> (`properties`, `on_table_exists`, `view_security`, `views_enabled`, `sync_nested_columns`,
-> `grace_period`) and `adapter.diff_nested_column_types` before Part 4; whether Part 0 (a
-> redaction entry in `dbt-adbc`) is welcome; whether `AdapterType::Starburst` should use the
-> Trino implementation; how to hand over a Trino target for your CI.
+> **Questions for dbt Labs:** the PR shape; Product/DX approval for the six config keys
+> (`properties` for models, seeds and snapshots; `on_table_exists`, `view_security`,
+> `views_enabled`, `sync_nested_columns` and `grace_period` for models) and
+> `adapter.diff_nested_column_types` before Part 4; whether Part 0 (a redaction entry in
+> `dbt-adbc`) is welcome; whether `AdapterType::Starburst` should use the Trino implementation;
+> how to hand over a Trino target for your CI.
 >
 > **Known driver limits** (adbc-drivers/trino#…, #…): cancel does not stop a running query;
 > go/v0.5.3 ignores `timezone`, so the session uses the server's time zone; no mTLS, OAuth
