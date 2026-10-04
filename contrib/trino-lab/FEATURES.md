@@ -41,7 +41,7 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | `on_table_exists: replace` | – | – | ✓ | ✓ | basic |
 | `view_security: definer / invoker` | ✓ | ✓ | ✓ | ✓ | basic |
 | `properties`, `file_format`, `table_format` | – | ✓ | ✓ | ✓ | basic |
-| `storage_uri` sets `location` | – | –² | ✓ | ✓ | basic |
+| `storage_uri` sets `location` | – | –² | ✓³ | ✓ | basic |
 | view ↔ table switch | ✓ | ✓ | ✓ | ✓ | basic |
 | a failed view → table switch keeps the view (`rename`) | ✓ | ✓ | ✓ | ✗¹ | basic |
 | materialized view (create, refresh, full refresh, `grace_period`, mixed-case names) | – | – | ✓ | – | features |
@@ -49,9 +49,11 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | snapshots: timestamp, check, `hard_deletes` invalidate / new_record | – | – | ✓ | ✓ | features, more |
 | contracts with `not_null` | ✓ | – | ✓ | ✓ | features |
 
-¹ Trino can't rename managed Delta tables on a Hive metastore; use `replace`.
+¹ Trino can't rename managed Delta tables on a Hive metastore; use `drop` or `replace`.
 ² The Hive connector calls this property `external_location`, so `location` does not apply
 (the same in dbt-trino v1).
+³ With a fixed location, use `on_table_exists: replace` or `drop`. In `rename` mode, the new
+table gets the same location, which Iceberg refuses (the same in dbt-trino v1).
 
 ## Incremental
 
@@ -62,13 +64,13 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | delete+insert | – | – | ✓ | ✓ | incremental |
 | microbatch (sequential batches, reruns replace batches) | – | – | ✓ | ✓ | incremental |
 | `on_schema_change`: append_new_columns | ✓ | ✓ | ✓ | ✓ | incremental |
-| `on_schema_change`: sync_all_columns (incl. type change on Iceberg/Delta) | n/t | ✓ | ✓ | ✓³ | incremental |
+| `on_schema_change`: sync_all_columns (incl. type change on Iceberg/Delta) | n/t | ✓ | ✓ | ✓⁴ | incremental |
 | `on_schema_change`: fail, ignore | ✓ | n/t | ✓ | n/t | incremental |
 | `sync_nested_columns` (new fields keep the model's order; a missing nested ROW is added whole; a field in the middle of a ROW asks for `--full-refresh`) | – | – | ✓ | – | incremental |
 | `views_enabled: false` | ✓ | n/t | ✓ | n/t | incremental |
 | full refresh | ✓ | ✓ | ✓ | ✓ | incremental |
 
-³ Delta needs `column_mapping_mode = 'name'` to drop or rename columns.
+⁴ Delta needs `column_mapping_mode = 'name'` to drop or rename columns.
 
 `insert_overwrite` is not a valid strategy, as in dbt-trino v1: dbt stops before it creates
 anything [incremental].

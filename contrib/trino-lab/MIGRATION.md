@@ -124,7 +124,12 @@ Two YAML details apply to `profiles.yml` and `dbt_project.yml`:
 These come from Trino itself, not the adapter:
 
 - **Delta Lake on a Hive metastore can't rename managed tables or views.** Use
-  `on_table_exists: replace` for Delta models (Trino supports `CREATE OR REPLACE TABLE` there).
+  `on_table_exists: replace` (Trino supports `CREATE OR REPLACE TABLE` there) or `drop` for
+  Delta models. In `rename` mode, a table rerun fails, and a switch from a view to a table
+  drops the view and then fails at the rename.
+- **A fixed table location** (`storage_uri` or `properties.location`) needs
+  `on_table_exists: replace` or `drop`. In `rename` mode, the new table gets the same location,
+  and Iceberg refuses a location that the old table still uses.
 - **Delta Lake drops or renames columns only with column mapping**
   (`properties: {column_mapping_mode: "'name'"}`), which `on_schema_change: sync_all_columns`
   needs.

@@ -572,24 +572,30 @@ the `get_relation` row mapping, a NULL table owner, the transactions feature, th
 work.
 
 - **Vendored macros:** "Copyright 2021 Starburst Data, Inc."; v1.10.6 has no macro changes.
-  Provenance is in each file header and in `dbt_macro_assets/README.md`. Every v2 change is
-  marked `v2:` and has a loader test. The main ones:
+  Provenance is in each file header and in `dbt_macro_assets/README.md`. Each v2 change is
+  marked `v2:`. The main ones:
   - `information_schema('<view>')`, `%s` binding literals, escaping of interpolated literals,
     catalog SQL types, and renames qualified with catalog and schema
+  - the catalog, schema and table literals of the metadata queries are lowercase, because Trino
+    stores these names in lowercase
   - a private `trino_quoted_literal` macro instead of a `trino__string_literal` override, so
     `dbt.string_literal` keeps dbt's default behavior
-  - a switch from a view to a table in `rename` and `skip` mode builds the new table first, so
-    the old relation survives a failed build; `drop` and `replace` keep drop-first
+  - a switch from a view to a table in `rename` mode builds the new table first, so the old
+    relation survives a failed build; `drop`, `replace` and `skip` drop the view first
   - `persist_docs` on a materialized view puts the comment into `CREATE MATERIALIZED VIEW …
-    COMMENT`, because Trino has no `COMMENT ON MATERIALIZED VIEW`
+    COMMENT`, because Trino rejects `COMMENT ON` for a materialized view (v1 rendered
+    `comment on materialized_view …`)
   - `properties()`: a `catalog_name` gives a clear "not supported yet" error; without it,
-    `storage_uri` sets `location` (v1 parity)
-  - grants: the show-grants SQL lowercases names and leaves out the current user, so dbt never
-    revokes its own privileges
+    `storage_uri` sets `location` (v1 parity). As in v1, a fixed location (`storage_uri` or
+    `properties.location`) needs `on_table_exists: replace` or `drop`: in `rename` mode, the
+    new table gets the same location, which Iceberg refuses while the old table uses it
+  - grants: the show-grants SQL lowercases names and reads only user grantees
+    (`grantee_type = 'USER'`), because dbt grants only to users. It leaves out the current
+    user, so dbt never revokes its own privileges
   - `on_schema_change` keeps drop-before-add; a comment explains the Hive metastore trade-off
-- **Config keys:** `properties`, `on_table_exists`, `view_security`, `views_enabled`,
-  `sync_nested_columns` and `grace_period`, with dbt-trino's names (Exasol precedent). They are
-  in `log_state_mod_diff` too.
+- **Config keys**, with dbt-trino's names (Exasol precedent): `properties` for models, seeds and
+  snapshots; `on_table_exists`, `view_security`, `views_enabled`, `sync_nested_columns` and
+  `grace_period` for models only. They are in `log_state_mod_diff` too.
 - **Adapter behavior:**
   - constraint support (`not_null` enforced), taken from v1 `CONSTRAINT_SUPPORT`
   - grants use the standard parser
@@ -599,15 +605,32 @@ work.
   - seed types match v1 (`INTEGER`, `DOUBLE`, bare `TIMESTAMP`)
 - **Nested ROW schema sync:** `adapter.diff_nested_column_types`, a generic struct diff in
   `dbt-adapter-sql`. New fields keep the source order, and a missing nested struct is added as
-  one field. Trino matches `ROW` fields by position, so if the target field order would differ
-  from the source, dbt stops with an error that asks for `--full-refresh` (v1 swaps the
-  values silently).
-- No shared `dbt-adapters` macros are changed.
+  one field. Trino matches `ROW` fields by position, so if the fields of a `ROW` column, or of a
+  `ROW` in it, would be in another order than in the model, dbt stops with an error that asks
+  for `--full-refresh` (v1 swaps the values silently). The error comes after the `ALTER`
+  statements, so the new field is already in the table, and later runs fail too until a
+  `--full-refresh`.
+- **Shared code:** `CatalogRelation::from_model_config_and_catalogs`
+  (`dbt-adapter/src/catalog_relation.rs`) has a Trino arm that fails when a model sets
+  `catalog_name`, with the same message as `properties()`. It is needed because
+  `generate_database_name` calls `build_catalog_relation` at parse time, before any macro of
+  this package runs. A generic error for every adapter without catalog integrations would work
+  too, if you prefer it. No shared `dbt-adapters` macros are changed.
+
+**Known limit (Delta Lake on a Hive metastore):** Trino cannot rename managed Delta tables
+there, so `rename` mode fails on Delta: a table rerun fails at the rename, and a switch from a
+view builds the new table, drops the view and then fails at the rename. Use
+`on_table_exists: drop` or `replace` for Delta models. `skip` drops the view first, so a switch
+works on Delta.
 
 **Interface changes** (need Product/DX approval): the six config keys and
 `adapter.diff_nested_column_types`.
 
-**Tests:** a loader test for every `v2:` change, and struct-diff tests in `dbt-adapter-sql`.
+**Tests:** loader tests for the `v2:` changes, including the `sync_column_schemas` override, a
+mixed-case database in the catalog and `check_schema_exists` SQL, and the user-only grants
+query. The two `v2:` edits in `seeds/helpers.sql` remove a v1 comment and an unused `set`, and
+change no behavior. Struct-diff tests in `dbt-adapter-sql`, and unit tests for the shared guard
+(with and without `catalog_name`) and for the Trino seed types in `convert_type`.
 
 **Evidence:**
 - jaffle-shop-classic (+incremental, +snapshot) builds clean on Iceberg, Delta Lake and Hive on S3.
