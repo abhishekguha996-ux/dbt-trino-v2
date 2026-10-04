@@ -20,7 +20,10 @@ use arrow::{
     },
     compute::{CastOptions, cast_with_options},
     datatypes::{DataType, Field, Schema, TimeUnit},
-    util::pretty::{pretty_format_batches, print_batches},
+    util::{
+        display::{ArrayFormatter, FormatOptions},
+        pretty::{pretty_format_batches, print_batches},
+    },
 };
 use chrono::DateTime;
 use dbt_adapter::Adapter;
@@ -1688,29 +1691,25 @@ pub fn materialize_test(
 /// (query results are normalized to view types at the adapter boundary; see
 /// `dbt-adapter`'s `concat_batches::to_view_types`). The comparison logic below
 /// assumes plain `Utf8`/`StringArray`, so downgrade back to that before comparing.
+/// A binary column becomes `Utf8` too when all its values are valid UTF-8, and it
+/// keeps its hex display otherwise. Deciding per column keeps a text value from
+/// comparing equal to the hex display of other bytes.
 ///
 /// TODO(felipecrv): implement semantic comparison functionality in dbt-agate.
 fn normalize_to_utf8(batch: &RecordBatch) -> arrow::error::Result<RecordBatch> {
     let schema = batch.schema();
-    if !schema
-        .fields()
-        .iter()
-        .any(|f| matches!(f.data_type(), DataType::Utf8View | DataType::LargeUtf8))
-    {
+    if !schema.fields().iter().any(|f| {
+        matches!(
+            f.data_type(),
+            DataType::Utf8View
+                | DataType::LargeUtf8
+                | DataType::Binary
+                | DataType::LargeBinary
+                | DataType::BinaryView
+        )
+    }) {
         return Ok(batch.clone());
     }
-
-    let fields: Vec<Field> = schema
-        .fields()
-        .iter()
-        .map(|f| match f.data_type() {
-            DataType::Utf8View | DataType::LargeUtf8 => {
-                f.as_ref().clone().with_data_type(DataType::Utf8)
-            }
-            _ => f.as_ref().clone(),
-        })
-        .collect();
-    let new_schema = Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()));
 
     let cast_options = CastOptions {
         safe: false,
@@ -1719,14 +1718,24 @@ fn normalize_to_utf8(batch: &RecordBatch) -> arrow::error::Result<RecordBatch> {
     let columns: Vec<ArrayRef> = batch
         .columns()
         .iter()
-        .zip(new_schema.fields())
-        .map(|(col, field)| match field.data_type() {
-            DataType::Utf8 if col.data_type() != &DataType::Utf8 => {
+        .map(|col| match col.data_type() {
+            DataType::Utf8View | DataType::LargeUtf8 => {
                 cast_with_options(col, &DataType::Utf8, &cast_options)
+            }
+            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
+                Ok(cast_with_options(col, &DataType::Utf8, &cast_options)
+                    .unwrap_or_else(|_| col.clone()))
             }
             _ => Ok(col.clone()),
         })
         .collect::<Result<_, _>>()?;
+    let fields: Vec<Field> = schema
+        .fields()
+        .iter()
+        .zip(&columns)
+        .map(|(f, col)| f.as_ref().clone().with_data_type(col.data_type().clone()))
+        .collect();
+    let new_schema = Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()));
 
     RecordBatch::try_new(new_schema, columns)
 }
@@ -1907,9 +1916,13 @@ fn value_as_string(array: &ArrayRef, index: usize, data_type: &DataType) -> Stri
             null_or!(arr, index, {
                 let raw_value = arr.value(index);
                 let scale_factor = 10i128.pow(*scale as u32);
-                let integer_part = raw_value / scale_factor;
-                let fractional_part = (raw_value % scale_factor).abs();
-                format!("{integer_part}.{fractional_part}")
+                // The sign comes from the raw value, because the integer part of a value
+                // between -1 and 0 is 0. The fraction keeps its leading zeros (0.05, not 0.5).
+                let sign = if raw_value < 0 { "-" } else { "" };
+                let integer_part = (raw_value / scale_factor).unsigned_abs();
+                let fractional_part = (raw_value % scale_factor).unsigned_abs();
+                let width = *scale as usize;
+                format!("{sign}{integer_part}.{fractional_part:0width$}")
             })
         }
         DataType::Timestamp(TimeUnit::Second, _) => {
@@ -1942,15 +1955,29 @@ fn value_as_string(array: &ArrayRef, index: usize, data_type: &DataType) -> Stri
                 (epoch + chrono::Duration::days(days)).to_string()
             })
         }
-        _ => "[unsupported]".to_string(),
+        // Other types (Decimal64, Int8, Timestamp(Millisecond), ...) compare by their Arrow
+        // display text, so a mismatch is not masked as a match. A NULL inside a value, such as
+        // a map value, shows as NULL too, so it does not match an empty string.
+        _ => null_or!(
+            array,
+            index,
+            ArrayFormatter::try_new(array.as_ref(), &FormatOptions::new().with_null("NULL"))
+                .map(|formatter| formatter.value(index).to_string())
+                .unwrap_or_else(|_| "[unsupported]".to_string())
+        ),
     }
 }
 
 #[cfg(test)]
 mod compare_record_batches_tests {
-    use super::compare_record_batches;
-    use arrow::array::{BinaryArray, Int32Array, Int64Array, StringViewArray};
-    use arrow::datatypes::{DataType, Field, Schema};
+    use super::{CompareRecordBatchResult, compare_record_batches};
+    use arrow::array::{
+        ArrayRef, AsArray, BinaryArray, BinaryViewArray, Decimal64Array, Decimal128Array,
+        Decimal256Array, DictionaryArray, Int16Array, Int32Array, Int64Array, MapBuilder,
+        StringBuilder, StringViewArray, Time64MicrosecondArray, TimestampMicrosecondArray,
+        TimestampMillisecondArray,
+    };
+    use arrow::datatypes::{DataType, Field, Int64Type, Schema, i256};
     use std::sync::Arc;
 
     // Query results are normalized to Utf8View/LargeUtf8 at the adapter boundary
@@ -1979,6 +2006,298 @@ mod compare_record_batches_tests {
             result.has_differences,
             "expected 'alice' vs 'bob' to be flagged as a mismatch, but Utf8View columns were silently treated as unsupported"
         );
+    }
+
+    /// An "expected" row followed by an "actual" row.
+    fn expected_then_actual() -> ArrayRef {
+        Arc::new(StringViewArray::from(vec!["expected", "actual"]))
+    }
+
+    /// The diff text of `column` for the first expected and actual row.
+    fn diff_text(result: &CompareRecordBatchResult, column: &str) -> String {
+        let diffs = result.diff_batch.column_by_name(column).unwrap();
+        diffs.as_string::<i32>().value(0).to_string()
+    }
+
+    // value_as_string has no arm for these types, so they used to show "[unsupported]" on both
+    // sides and every mismatch passed. For example, BigQuery, Databricks, Postgres, Redshift and
+    // DuckDB return microsecond timestamps, and Trino returns decimal(10, 2) as Decimal64.
+    #[test]
+    fn detects_mismatch_in_types_without_a_formatting_arm() {
+        let batch = arrow::array::RecordBatch::try_from_iter([
+            ("actual_or_expected", expected_then_actual()),
+            ("small", Arc::new(Int16Array::from(vec![1, 2])) as ArrayRef),
+            (
+                "amount",
+                Arc::new(
+                    Decimal64Array::from(vec![1235, 1234])
+                        .with_precision_and_scale(10, 2)
+                        .unwrap(),
+                ),
+            ),
+            (
+                "at_ms",
+                Arc::new(TimestampMillisecondArray::from(vec![1_001, 1_002])),
+            ),
+            (
+                "at_us",
+                Arc::new(
+                    TimestampMicrosecondArray::from(vec![1_000_001, 1_000_002])
+                        .with_timezone("UTC"),
+                ),
+            ),
+            ("time", Arc::new(Time64MicrosecondArray::from(vec![1, 2]))),
+        ])
+        .unwrap();
+
+        let result = compare_record_batches(&batch).unwrap();
+        assert!(result.has_differences);
+        for (column, diff) in [
+            ("small", "1 -> 2"),
+            ("amount", "12.35 -> 12.34"),
+            (
+                "at_ms",
+                "1970-01-01T00:00:01.001 -> 1970-01-01T00:00:01.002",
+            ),
+            (
+                "at_us",
+                "1970-01-01T00:00:01.000001Z -> 1970-01-01T00:00:01.000002Z",
+            ),
+            ("time", "00:00:00.000001 -> 00:00:00.000002"),
+        ] {
+            assert_eq!(diff_text(&result, column), diff);
+        }
+    }
+
+    #[test]
+    fn detects_null_against_a_value() {
+        let batch = arrow::array::RecordBatch::try_from_iter([
+            ("actual_or_expected", expected_then_actual()),
+            (
+                "small",
+                Arc::new(Int16Array::from(vec![None, Some(7)])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+
+        let result = compare_record_batches(&batch).unwrap();
+        assert!(result.has_differences);
+        assert_eq!(diff_text(&result, "small"), "NULL -> 7");
+    }
+
+    // Query results carry binary columns as BinaryView (concat_batches::to_view_types).
+    #[test]
+    fn binary_values_compare_as_text_when_valid_utf8_and_as_hex_otherwise() {
+        let batch = arrow::array::RecordBatch::try_from_iter([
+            ("actual_or_expected", expected_then_actual()),
+            (
+                "text",
+                Arc::new(BinaryViewArray::from(vec![
+                    b"abc".as_slice(),
+                    b"abd".as_slice(),
+                ])) as ArrayRef,
+            ),
+            // The text "ff" must not match the byte 0xff
+            (
+                "bytes",
+                Arc::new(BinaryViewArray::from(vec![
+                    b"ff".as_slice(),
+                    b"\xff".as_slice(),
+                ])),
+            ),
+        ])
+        .unwrap();
+
+        let result = compare_record_batches(&batch).unwrap();
+        assert_eq!(diff_text(&result, "text"), "abc -> abd");
+        assert_eq!(diff_text(&result, "bytes"), "6666 -> ff");
+    }
+
+    /// A `Dictionary(Int64, Utf8View)` column whose rows are `keys` into `values`.
+    fn dictionary(keys: Vec<i64>, values: Vec<&str>) -> ArrayRef {
+        Arc::new(
+            DictionaryArray::<Int64Type>::try_new(
+                Int64Array::from(keys),
+                Arc::new(StringViewArray::from(values)),
+            )
+            .unwrap(),
+        )
+    }
+
+    /// A `Map(Utf8, Utf8)` column with one row per entry list; a `None` value is NULL.
+    fn string_map(rows: &[&[(&str, Option<&str>)]]) -> ArrayRef {
+        let mut builder = MapBuilder::new(None, StringBuilder::new(), StringBuilder::new());
+        for entries in rows {
+            for (key, value) in *entries {
+                builder.keys().append_value(key);
+                builder.values().append_option(*value);
+            }
+            builder.append(true).unwrap();
+        }
+        Arc::new(builder.finish())
+    }
+
+    // The integer part of a value between -1 and 0 is 0, so the Decimal128 arm used to show
+    // -0.50 and 0.50 both as "0.50". Decimal256 has no arm and takes the Arrow display.
+    #[test]
+    fn keeps_the_sign_of_decimals_between_minus_one_and_zero() {
+        let batch = arrow::array::RecordBatch::try_from_iter([
+            ("actual_or_expected", expected_then_actual()),
+            (
+                "d128",
+                Arc::new(
+                    Decimal128Array::from(vec![-50, 50])
+                        .with_precision_and_scale(20, 2)
+                        .unwrap(),
+                ) as ArrayRef,
+            ),
+            (
+                "d256",
+                Arc::new(
+                    Decimal256Array::from(vec![i256::from(-50), i256::from(50)])
+                        .with_precision_and_scale(40, 2)
+                        .unwrap(),
+                ),
+            ),
+            // The fraction keeps its leading zero: 0.05 used to show as "0.5".
+            (
+                "d128_cents",
+                Arc::new(
+                    Decimal128Array::from(vec![5, -105])
+                        .with_precision_and_scale(20, 2)
+                        .unwrap(),
+                ),
+            ),
+        ])
+        .unwrap();
+
+        let result = compare_record_batches(&batch).unwrap();
+        assert!(result.has_differences);
+        assert_eq!(diff_text(&result, "d128"), "-0.50 -> 0.50");
+        assert_eq!(diff_text(&result, "d256"), "-0.50 -> 0.50");
+        assert_eq!(diff_text(&result, "d128_cents"), "0.05 -> -1.05");
+    }
+
+    // The fallback used Arrow's default NULL text, an empty string, so {a: NULL} and {a: ''}
+    // both showed "{a: }".
+    #[test]
+    fn null_inside_a_map_value_does_not_match_an_empty_string() {
+        let batch = arrow::array::RecordBatch::try_from_iter([
+            ("actual_or_expected", expected_then_actual()),
+            ("attrs", string_map(&[&[("a", None)], &[("a", Some(""))]])),
+        ])
+        .unwrap();
+
+        let result = compare_record_batches(&batch).unwrap();
+        assert!(result.has_differences);
+        assert_eq!(diff_text(&result, "attrs"), "{a: NULL} -> {a: }");
+    }
+
+    // Comparing by text must not fail a unit test whose values are equal. Two expected rows,
+    // then two actual rows with the same values, NULL included.
+    #[test]
+    fn equal_values_of_types_without_a_formatting_arm_still_match() {
+        let batch = arrow::array::RecordBatch::try_from_iter([
+            (
+                "actual_or_expected",
+                Arc::new(StringViewArray::from(vec![
+                    "expected", "expected", "actual", "actual",
+                ])) as ArrayRef,
+            ),
+            (
+                "small",
+                Arc::new(Int16Array::from(vec![Some(-7), None, Some(-7), None])),
+            ),
+            (
+                "amount",
+                Arc::new(
+                    Decimal64Array::from(vec![1234, -5, 1234, -5])
+                        .with_precision_and_scale(10, 2)
+                        .unwrap(),
+                ),
+            ),
+            (
+                "big_amount",
+                Arc::new(
+                    Decimal128Array::from(vec![-50, 5, -50, 5])
+                        .with_precision_and_scale(20, 2)
+                        .unwrap(),
+                ),
+            ),
+            (
+                "at_us",
+                Arc::new(
+                    TimestampMicrosecondArray::from(vec![
+                        Some(1_000_001),
+                        None,
+                        Some(1_000_001),
+                        None,
+                    ])
+                    .with_timezone("UTC"),
+                ),
+            ),
+            (
+                "time",
+                Arc::new(Time64MicrosecondArray::from(vec![
+                    1,
+                    86_399_999_999,
+                    1,
+                    86_399_999_999,
+                ])),
+            ),
+            (
+                "text",
+                Arc::new(BinaryViewArray::from(vec![
+                    Some(b"abc".as_slice()),
+                    None,
+                    Some(b"abc".as_slice()),
+                    None,
+                ])),
+            ),
+            (
+                "bytes",
+                Arc::new(BinaryViewArray::from(vec![
+                    b"\xff".as_slice(),
+                    b"ff".as_slice(),
+                    b"\xff".as_slice(),
+                    b"ff".as_slice(),
+                ])),
+            ),
+            ("tag", dictionary(vec![0, 1, 0, 1], vec!["x", "y"])),
+            (
+                "attrs",
+                string_map(&[
+                    &[("a", None), ("b", Some(""))],
+                    &[],
+                    &[("a", None), ("b", Some(""))],
+                    &[],
+                ]),
+            ),
+        ])
+        .unwrap();
+
+        let result = compare_record_batches(&batch).unwrap();
+        assert!(!result.has_differences, "{:?}", result.diff_batch);
+        assert_eq!(result.expected_rows, 2);
+        assert_eq!(result.actual_rows, 2);
+    }
+
+    #[test]
+    fn detects_mismatch_in_dictionary_and_map_columns() {
+        let batch = arrow::array::RecordBatch::try_from_iter([
+            ("actual_or_expected", expected_then_actual()),
+            ("tag", dictionary(vec![0, 1], vec!["x", "y"])),
+            (
+                "attrs",
+                string_map(&[&[("a", Some("x"))], &[("a", Some("y"))]]),
+            ),
+        ])
+        .unwrap();
+
+        let result = compare_record_batches(&batch).unwrap();
+        assert!(result.has_differences);
+        assert_eq!(diff_text(&result, "tag"), "x -> y");
+        assert_eq!(diff_text(&result, "attrs"), "{a: x} -> {a: y}");
     }
 
     #[test]

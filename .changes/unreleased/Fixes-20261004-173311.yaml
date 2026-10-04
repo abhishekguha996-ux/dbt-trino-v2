@@ -1,0 +1,7 @@
+kind: Fixes
+body: Fix unit tests passing despite mismatched values in columns such as small integers, Decimal32/64, millisecond and microsecond timestamps, time, binary and map columns, NULL against a value (also inside a map value), and the sign of a decimal between -1 and 0
+time: 2026-10-04T17:33:11.887755-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: ""
+    project: dbt-core
