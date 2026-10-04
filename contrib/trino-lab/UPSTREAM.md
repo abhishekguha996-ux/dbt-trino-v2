@@ -29,6 +29,17 @@ sign it:
 - You keep the copyright. You can still use your own code for anything else.
 - It covers your present and future contributions to dbt Labs.
 
+**Code that is not your own (sections 5 and 7).** In section 5 you state that each
+contribution is your original creation, and that your submission gives the details of any
+third-party license or restriction that you know of. Section 7 covers work that is not your
+own. You may submit it separately from your own contributions. You must give the complete
+details of its source and license, and mark it conspicuously as "Submitted on behalf of a
+third-party: [named here]". Part 4 vendors the dbt-trino v1.10.5 macros, which are Starburst's
+work. So the Part 4 PR text (see [PR descriptions](#pr-descriptions)) and the
+[umbrella issue](#umbrella-issue) carry this marking, and they say that only the changes marked
+`v2:` are your own work. If dbt Labs wants the vendored files in a separate submission, offer
+them as a separate commit or PR.
+
 **Why you need it.** dbt Labs merges code only from contributors with a signed CLA. On every
 pull request, `cla-bot` checks the author. Without a CLA it writes "CLA has not been signed by
 users: @…", and the PR gets no `cla:yes` label. Since June 2026, no community PR without that
@@ -226,8 +237,9 @@ discussion" for all adapters.
 
 - Name #15345 in the Slack message and in the umbrella issue: this series does not include
   inline UDFs, and whichever PR lands second rebases.
-- Do not copy code from #15345. Its author has not signed the CLA, and the ICLA covers only your
-  own work (sections 5 and 7).
+- Do not copy code from #15345. It is not your own work (section 5), and its author has not
+  signed the CLA. Third-party code needs the section 7 marking (see
+  [Individual CLA](#individual-cla)).
 - Do not comment on #15345 unless a maintainer asks you to.
 
 ## Slack message
@@ -257,6 +269,11 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > (inline UDFs, not part of this work).
 >
 > **Merge plan:** (the Option A table from UPSTREAM.md, with the PR numbers)
+>
+> **Submitted on behalf of a third-party: Starburst Data, Inc. (dbt-trino v1.10.5, commit
+> 6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6, Apache-2.0).** This covers
+> `crates/dbt-loader/src/dbt_macro_assets/dbt-trino/**`; only the changes marked `v2:` are my own
+> work.
 >
 > **Evidence:** jaffle-shop-classic (+incremental, +snapshot) builds clean on Trino 483
 > (Iceberg, Delta Lake, Hive on S3), plus a functional suite of about 100 tests, all
@@ -396,10 +413,15 @@ feature, the `list_schemas` column and cache hydration.
 **Problem:** There's no Trino macro package, so nothing materializes.
 
 **Solution:**
-- **Vendored macros:** dbt-trino v1.10.5 (commit `6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6`,
-  Apache-2.0, "Copyright 2021 Starburst Data, Inc."; v1.10.6 has no macro changes). Provenance
-  is in each file header and in `dbt_macro_assets/README.md`. Every v2 change is marked `v2:`
-  and has a loader test. The main ones:
+
+**Submitted on behalf of a third-party: Starburst Data, Inc. (dbt-trino v1.10.5, commit
+6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6, Apache-2.0).** This covers
+`crates/dbt-loader/src/dbt_macro_assets/dbt-trino/**`; only the changes marked `v2:` are my own
+work.
+
+- **Vendored macros:** "Copyright 2021 Starburst Data, Inc."; v1.10.6 has no macro changes.
+  Provenance is in each file header and in `dbt_macro_assets/README.md`. Every v2 change is
+  marked `v2:` and has a loader test. The main ones:
   - `information_schema('<view>')`, `%s` binding literals, escaping of interpolated literals,
     catalog SQL types, and renames qualified with catalog and schema
   - a private `trino_quoted_literal` macro instead of a `trino__string_literal` override, so
