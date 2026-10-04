@@ -1,20 +1,23 @@
 # **what?**
-# Fork-only workflow for the experimental Trino adapter: runs the Trino-focused Rust tests and
-# builds release `dbt` binaries bundled with the ADBC Trino driver.
+# Fork-only workflow for the experimental Trino adapter: runs the Rust checks of the adapter
+# crates, builds release `dbt` binaries bundled with the ADBC Trino driver, and runs the lab's
+# functional suite and the jaffle-shop-classic acceptance build with the Linux binary against
+# the lab's Trino stack.
 #
 # **why?**
 # Lets teams install the adapter on Linux x86_64 hosts (for example Coder workspaces) before it
-# is available in an official dbt release. Not intended for the upstream repository.
+# is available in an official dbt release, and records live evidence for the binary that is
+# shipped. Not intended for the upstream repository.
 #
 # **when?**
-# Pushes to the trino-v2-adapter branch, `trino-v*` tags (which also publish a GitHub
-# release), and manual dispatch.
+# Pushes to the trino-v2-adapter and trino-ready/** branches, `trino-v*` tags (which also
+# publish a GitHub release), and manual dispatch.
 
 name: Trino adapter build (fork)
 
 on:
   push:
-    branches: [trino-v2-adapter]
+    branches: [trino-v2-adapter, "trino-ready/**"]
     tags: ["trino-v*"]
     paths:
       - "crates/**"
@@ -24,31 +27,51 @@ on:
       - "contrib/trino-lab/**"
   workflow_dispatch:
 
+# A newer push to a branch supersedes its running build; tag builds always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') }}
+
 permissions:
   contents: read
 
 env:
   CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   TRINO_DRIVER_VERSION: v0.5.3
 
 jobs:
   test:
-    name: Trino unit tests
+    name: Rust checks (Trino crates)
     if: github.repository != 'dbt-labs/dbt'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      # The crates that the Trino series touches.
+      CRATES: >-
+        -p dbt-auth -p dbt-adbc -p dbt-adapter-sql -p dbt-adapter -p dbt-adapter-core
+        -p dbt-schemas -p dbt-loader -p dbt-profile-schemas -p dbt-init -p dbt-df-providers
+      # Same as upstream ci.yml: parser and Jinja tests overflow the default thread stack.
+      RUST_MIN_STACK: "8388608"
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # actions/checkout@v4
       - uses: ./.github/actions/setup-rust-linux
         with:
           cache-key: trino-fork-tests
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-      - name: Trino-focused tests
+          components: rustfmt clippy
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Clippy
         run: |
-          cargo nextest run -p dbt-auth -p dbt-adbc -p dbt-adapter-sql -p dbt-adapter \
-            -p dbt-schemas -p dbt-loader -p dbt-profile-schemas -E 'test(trino) | test(access_token)'
+          # shellcheck disable=SC2086 # CRATES holds several -p arguments
+          cargo clippy $CRATES --all-targets -- -D warnings
+      - name: Tests
+        run: |
+          # shellcheck disable=SC2086 # CRATES holds several -p arguments
+          cargo nextest run $CRATES
 
   build:
     name: Build (${{ matrix.target }})
@@ -62,7 +85,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             container: quay.io/pypa/manylinux_2_28_x86_64
             driver_platform: linux_amd64
             driver_sha256: 49ddc23d5d2e2f859bee554c005aff2ecbc17312a9f25c84d14834b68fbeecfc
@@ -104,11 +127,17 @@ jobs:
         shell: bash
         run: cargo build --release -p dbt-sa-cli --bin dbt --target "${{ matrix.target }}"
 
+      # Tag builds are named after the tag alone, so INSTALL.md can give stable release URLs.
+      # Branch builds add the short commit SHA. BUILD-INFO records the commit either way.
       - name: Package binary with the ADBC Trino driver
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="$GITHUB_REF_NAME"
+          else
+            VERSION="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+          fi
           PKG="dbt-trino-v2-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/$PKG/bin" "dist/$PKG/lib" /tmp/driver
           cp "target/${{ matrix.target }}/release/dbt" "dist/$PKG/bin/dbt"
@@ -123,6 +152,9 @@ jobs:
           cp /tmp/driver/NOTICE "dist/$PKG/lib/NOTICE.adbc-driver-trino" || true
           cp LICENSE "dist/$PKG/LICENSE"
           cp contrib/trino-lab/INSTALL.md "dist/$PKG/INSTALL.md"
+          printf 'ref: %s\ncommit: %s\nadbc driver: adbc-drivers/trino go/%s\nworkflow run: %s\n' \
+            "$GITHUB_REF_NAME" "$GITHUB_SHA" "$TRINO_DRIVER_VERSION" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "dist/$PKG/BUILD-INFO"
           tar -C dist -czf "dist/$PKG.tar.gz" "$PKG"
           (cd dist && sha256 "$PKG.tar.gz" > "$PKG.tar.gz.sha256")
           echo "PKG=$PKG" >> "$GITHUB_ENV"
@@ -131,23 +163,85 @@ jobs:
         shell: bash
         run: dist/${{ env.PKG }}/bin/dbt --version
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact@v4
         with:
           name: ${{ env.PKG }}
           path: |
             dist/${{ env.PKG }}.tar.gz
             dist/${{ env.PKG }}.tar.gz.sha256
 
+  # ------------------------------------------------------------------
+  # Runs the shipped Linux archive, as a user installs it, against the lab stack
+  # (contrib/trino-lab/stack: Trino 483, Hive metastore, S3). The stack needs about 6 GB of
+  # memory; standard GitHub-hosted Linux runners have 16 GB.
+  # ------------------------------------------------------------------
+  live:
+    name: Live suite (Linux x86_64)
+    if: github.repository != 'dbt-labs/dbt'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        # Explicit bash adds -o pipefail, so `| tee` keeps a failing exit status.
+        shell: bash
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # actions/checkout@v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact@v4
+        with:
+          pattern: dbt-trino-v2-*-x86_64-unknown-linux-gnu
+          path: ${{ runner.temp }}/dist
+          merge-multiple: true
+
+      - name: Install the Linux archive
+        working-directory: ${{ runner.temp }}/dist
+        run: |
+          sha256sum -c ./*.tar.gz.sha256
+          mkdir -p "$RUNNER_TEMP/dbt-trino-v2" "$RUNNER_TEMP/evidence"
+          tar -xzf ./*.tar.gz -C "$RUNNER_TEMP/dbt-trino-v2" --strip-components=1
+          echo "DBT_BIN=$RUNNER_TEMP/dbt-trino-v2/bin/dbt" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/dbt-trino-v2/BUILD-INFO"
+          "$RUNNER_TEMP/dbt-trino-v2/bin/dbt" --version
+
+      - name: Start the lab stack
+        id: stack
+        run: |
+          # stack.py hashes the lab passwords with htpasswd (apache2-utils).
+          command -v htpasswd >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q apache2-utils; }
+          python3 contrib/trino-lab/scripts/stack.py up
+
+      - name: Functional suite
+        working-directory: contrib/trino-lab/functional
+        run: python3 -m unittest -v 2>&1 | tee "$RUNNER_TEMP/evidence/functional.log"
+
+      # Runs even when the functional suite failed, so one run records both results.
+      - name: jaffle-shop-classic acceptance build
+        if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
+        run: contrib/trino-lab/acceptance/run_jaffle_shop.sh "$DBT_BIN" "$RUNNER_TEMP/evidence/jaffle-shop"
+
+      - name: Save the stack logs
+        if: failure()
+        run: docker compose -f contrib/trino-lab/stack/compose.yaml logs --no-color > "$RUNNER_TEMP/evidence/stack.log" 2>&1
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: trino-live-evidence
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: ignore
+
   release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/trino-v') && github.repository != 'dbt-labs/dbt'
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [build, live]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # actions/download-artifact@v4
         with:
+          pattern: dbt-trino-v2-*
           path: dist
           merge-multiple: true
       - name: Create release
@@ -156,5 +250,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "Experimental dbt v2 Trino adapter $GITHUB_REF_NAME" \
-            --notes "Unofficial build of the dbt v2 OSS CLI with the experimental Trino adapter. See INSTALL.md inside the archive." \
+            --notes "Unofficial build of the dbt v2 OSS CLI with the experimental Trino adapter, from commit $GITHUB_SHA. See INSTALL.md inside the archive. Live suite and jaffle-shop-classic logs: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --prerelease
