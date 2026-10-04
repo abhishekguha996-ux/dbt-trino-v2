@@ -204,7 +204,7 @@ class Project:
         if KEEP:
             print(f"kept {self.catalog}.{self.schema} and {self.dir}")
             return
-        for suffix in ("", "_snapshots", "_custom"):
+        for suffix in ("", "_snapshots", "_custom", "_dbt_test__audit"):
             drop_schema(self.catalog, self.schema + suffix)
         shutil.rmtree(self.dir, ignore_errors=True)
 

@@ -359,7 +359,8 @@ class TestSyncNestedColumns(TrinoTestCase):
                     "append_new_columns", "select 2 as id, cast(row('a2', 'm2', 'b2') "
                     "as row(a varchar, m varchar, b varchar)) as payload"))
                 output = p.dbt("run", expect=False).output
-                self.assertIn("payload", output)
+                self.assertIn("The ROW fields of column 'payload'", output)
+                self.assertIn("are not in the model's order", output)
                 self.assertIn("--full-refresh", output)
                 self.assertEqual(p.query(f"select id, payload.a, payload.b from {p.relation('m')}"), [[1, "a1", "b1"]])
                 p.dbt("run", "--full-refresh")

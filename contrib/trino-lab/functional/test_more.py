@@ -55,7 +55,6 @@ class TestStoreFailures(TrinoTestCase):
                 p.dbt("run")
                 result = p.dbt("test", "--store-failures", expect=False)
                 self.assertIn(result.status("unique_m_id"), ("fail", "error"))
-                self.addCleanup(lambda c=catalog, s=p.schema: __import__("harness").drop_schema(c, s + "_dbt_test__audit"))
                 stored = run_sql(f'select * from {catalog}."{p.schema}_dbt_test__audit".unique_m_id')
                 self.assertEqual(len(stored), 1)
 

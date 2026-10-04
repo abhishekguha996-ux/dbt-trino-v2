@@ -55,9 +55,13 @@ class TestAuthentication(TrinoTestCase):
         self.assertNotIn(SPECIAL_PASSWORD, dbt_log(p))
 
     def test_jwt(self):
-        p = self.https_project(method="jwt", user="admin", jwt_token=stack.jwt("admin"), cert=CA)
-        self.assertIn("All checks passed", p.dbt("debug").output)
-        p.dbt("run")
+        token = stack.jwt("admin")
+        p = self.https_project(method="jwt", user="admin", jwt_token=token, cert=CA)
+        debug = p.dbt("debug")
+        self.assertIn("All checks passed", debug.output)
+        run = p.dbt("run")
+        for output in (debug.output, run.output, dbt_log(p)):
+            self.assertNotIn(token, output)
 
     def test_cert_false_skips_verification(self):
         p = self.https_project(method="ldap", user=LDAP_USER, password=LDAP_PASSWORD, cert=False)
