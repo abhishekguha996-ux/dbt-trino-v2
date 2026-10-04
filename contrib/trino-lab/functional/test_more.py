@@ -99,10 +99,10 @@ class TestSessionLimits(TrinoTestCase):
                 self.assertLess(time.time() - start, 60)
                 self.assertRegex(result.output, r"(?i)exceeded|maximum run time|query_max_run_time")
 
-    # Known driver limitation (adbc-drivers/trino go/v0.5.3): AdbcStatementCancel only cancels a
-    # call that is still executing, and the query is polled while dbt reads the result stream,
-    # after ExecuteQuery returned. Trino then abandons the query after query.client.timeout
-    # (5m by default). Remove expectedFailure once the driver propagates cancellation.
+    # Known driver limitation (adbc-drivers/trino go/v0.5.3): AdbcStatementCancel returns OK, but
+    # the driver runs the query with context.Background(), so the query keeps running until Trino
+    # abandons it after query.client.timeout (5m by default). See DRIVER-ISSUES.md. Remove
+    # expectedFailure once the driver cancels the query.
     @unittest.expectedFailure
     def test_ctrl_c_stops_server_query(self):
         for catalog in self.catalogs("memory"):
