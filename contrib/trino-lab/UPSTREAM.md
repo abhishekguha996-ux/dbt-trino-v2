@@ -160,10 +160,10 @@ Each part is one commit. Together they change only `crates/` and `.changes/`. `c
 | S1 | `trino-pr/s1` | `<sha>` | `fix(dbt-agate): show arrow.uuid columns as text instead of panicking` | — |
 | S2 | `trino-pr/s2` | `<sha>` | `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm` | — |
 | 1 | `trino-pr/p1` | `<sha>` | `feat(trino): profile schema and ADBC authentication` | — |
-| 2 | `trino-pr/p2` | `<sha>` | `feat(trino): relations, columns, SQL types and literals` | — |
+| 2 | `trino-pr/p2` | `<sha>` | `feat(trino): relations, columns, SQL types and literals` | 1 |
 | 3a | `trino-pr/p3a` | `<sha>` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
-| 3b | `trino-pr/p3b` | `<sha>` | `feat(trino): metadata adapter, relation listing and get_relation` | 3a |
-| 4 | `trino-pr/p4` | `<sha>` | `feat(trino): dbt-trino macro package, materializations and model configs` | 2 |
+| 3b | `trino-pr/p3b` | `<sha>` | `feat(trino): metadata adapter, relation listing and get_relation` | 1, 3a |
+| 4 | `trino-pr/p4` | `<sha>` | `feat(trino): dbt-trino macro package, materializations and model configs` | 1, 2 |
 | 5 | `trino-pr/p5` | `<sha>` | `feat(trino): dbt init profile wizard` | 1 |
 
 Each `trino-pr/<part>` branch starts at `upstream/main` (`<sha>`) and holds the part's commit,
@@ -177,9 +177,14 @@ as small "Fixes" PRs of their own, each with cross-adapter tests. Part 2 needs t
 time: S1 to show uuid values as text, and S2 to compare Trino `decimal` and `timestamp(3)`
 values in unit tests.
 
-"Needs first" lists the symbols that a part uses from another part (analysis of 3 October,
-before the review fixes). Re-check it when the fixes have landed: build each part alone on
-`main`. A useful adapter needs all parts; Part 0 is defense in depth for Part 1's JWT.
+"Needs first" lists the parts that must be on `main` first, or that the PR must include (see
+Option A). On `main`, `backend_of(Trino)` is `todo!("Trino")`, so the Trino code of Parts 2,
+3b, 4 and 5 runs only with Part 1: the tests of Parts 3b and 4 build a Trino engine or adapter,
+and Part 5 fills the profile fields that Part 1 adds. Part 3b builds on Part 3a's
+`GenericMetadataAdapter`, and Part 4 on the Trino types and relations of Part 2. Before you
+open a PR, apply the part alone, with the parts it needs, to the latest `main` and run the
+tests of the crates it changes. A useful adapter needs all parts; Part 0 is defense in depth
+for Part 1's JWT.
 
 ## PR shape options
 
@@ -199,10 +204,10 @@ two open at a time. The merge plan for the umbrella issue:
 | 2 | #… | S1: show `arrow.uuid` columns as text instead of panicking (all adapters) | | |
 | 3 | #… | S2: compare unit-test values of Arrow types without a formatting arm (all adapters) | | |
 | 4 | #… | Part 1: profile schema and ADBC authentication | | |
-| 5 | #… | Part 2: relations, columns, SQL types and literals | | |
+| 5 | #… | Part 2: relations, columns, SQL types and literals | Part 1 | |
 | 6 | #… | Part 3a: share the Exasol metadata adapter as GenericMetadataAdapter | | |
-| 7 | #… | Part 3b: metadata adapter, relation listing and get_relation | Part 3a | |
-| 8 | #… | Part 4: dbt-trino macro package, materializations and model configs | Part 2 | |
+| 7 | #… | Part 3b: metadata adapter, relation listing and get_relation | Parts 1 and 3a | |
+| 8 | #… | Part 4: dbt-trino macro package, materializations and model configs | Parts 1 and 2 | |
 | 9 | #… | Part 5: `dbt init` profile wizard | Part 1 | |
 
 **Option B: one PR (the Exasol pattern).** Parts 0 to 5 in one PR from one branch, with one
