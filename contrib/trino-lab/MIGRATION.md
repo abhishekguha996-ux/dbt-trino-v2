@@ -108,13 +108,13 @@ Two YAML details apply to `profiles.yml` and `dbt_project.yml`:
 |---|---|
 | Unknown config keys | Errors (`dbt1060`). All dbt-trino keys are recognised: `properties`, `on_table_exists`, `view_security`, `views_enabled`, `sync_nested_columns`, `grace_period`, `file_format`, `table_format` |
 | `dbt docs generate` | Produces a static site in `target/`; use `dbt compile --write-catalog` for `catalog.json` |
-| Unit tests | Same YAML; a failing unit test is recorded as `error` in `run_results.json` |
+| Unit tests | Same YAML; a failing unit test is recorded as `error` in `run_results.json`. **v2 is stricter:** v1 casts an unquoted fixture timestamp such as `2013-11-03 00:00:00` as `try_cast('2013-11-03T00:00:00' as timestamp(0))`, which is NULL on both sides, so the test passes whatever the expected value is. v2 compares the timestamps, so a unit test that passed on v1 can fail on v2: check its expected rows |
 | `uuid` values | `run_query`, contracts and unit tests show the canonical text, as v1 does. `dbt show` prints a uuid as 32 hex digits without dashes (the Arrow display of `FixedSizeBinary(16)`) |
 | Static analysis / column lineage | Not part of the dbt v2 OSS build for any adapter; disabled for Trino |
 | Python models | Not supported (as in dbt-trino v1) |
 | Seeds | Same types as v1 (`INTEGER`, `DOUBLE`, `VARCHAR`, `DATE`, `TIMESTAMP`, `BOOLEAN`); whole numbers beyond 32 bits become `BIGINT` instead of failing |
 | `incremental_strategy: insert_overwrite` | Not available, as in dbt-trino v1: dbt stops with "The incremental strategy 'insert_overwrite' is not valid for this adapter". Use `append` on Hive, or `merge` / `delete+insert` on Iceberg and Delta Lake |
-| `sync_nested_columns` | New nested `ROW` fields keep the order of the model's columns, and a missing nested `ROW` is added as one field. A new field in the middle of a `ROW` stops dbt with an error that asks for `--full-refresh`: Trino matches `ROW` fields by position, so v1 put such values into the wrong fields without an error |
+| `sync_nested_columns` | New nested `ROW` fields keep the order of the model's columns, and a missing nested `ROW` is added as one field. A new field in the middle of a `ROW` stops dbt with an error that asks for `--full-refresh`: Trino matches `ROW` fields by position, so v1 put such values into the wrong fields without an error. The error comes after the `ALTER` statements, so the new field is already at the end of the table's `ROW`, and every later run fails the same way until you run the model with `--full-refresh` |
 | Grants | dbt never revokes the privileges of the user that runs it. v1 could revoke the schema owner's own privileges, and the next run then failed with Access Denied |
 | Materialized views | A full refresh uses `CREATE OR REPLACE MATERIALIZED VIEW`, so the old view stays if the new definition fails (v1 drops it first). `persist_docs` works on materialized views (v1 fails, because Trino has no `COMMENT ON MATERIALIZED VIEW`) |
 | `sql_header` | Now applied to tables and views (statements are split on `;`) |
