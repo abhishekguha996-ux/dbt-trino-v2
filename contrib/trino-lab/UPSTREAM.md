@@ -154,15 +154,21 @@ It is the same form that `cla-bot` links on a PR. The explanation is on
 Each part is one commit. Together they change only `crates/` and `.changes/`. `contrib/` and
 `.github/` are fork-only and never go upstream.
 
-| Part | Branch | Commit subject | Needs first |
-|---|---|---|---|
-| 0 | `trino/p0-redact-access-token` | `fix(adbc): redact accessToken URI parameters in Builder Debug output` | — |
-| 1 | `trino/p1-profile-auth` | `feat(trino): profile schema and ADBC authentication` | — |
-| 2 | `trino/p2-types-relations` | `feat(trino): relations, columns, SQL types and literals` | — |
-| 3a | `trino/p3a-generic-metadata-adapter` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
-| 3b | `trino/p3b-metadata` | `feat(trino): metadata adapter, relation listing and get_relation` | 3a |
-| 4 | `trino/p4-macros-materializations` | `feat(trino): dbt-trino macro package, materializations and model configs` | 2 |
-| 5 | `trino/p5-init-wizard` | `feat(trino): dbt init profile wizard` | 1 |
+| Part | Branch | Commit | Commit subject | Needs first |
+|---|---|---|---|---|
+| 0 | `trino-pr/p0` | `<sha>` | `fix(adbc): redact accessToken URI parameters in Builder Debug output` | — |
+| 1 | `trino-pr/p1` | `<sha>` | `feat(trino): profile schema and ADBC authentication` | — |
+| 2 | `trino-pr/p2` | `<sha>` | `feat(trino): relations, columns, SQL types and literals` | — |
+| 3a | `trino-pr/p3a` | `<sha>` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
+| 3b | `trino-pr/p3b` | `<sha>` | `feat(trino): metadata adapter, relation listing and get_relation` | 3a |
+| 4 | `trino-pr/p4` | `<sha>` | `feat(trino): dbt-trino macro package, materializations and model configs` | 2 |
+| 5 | `trino-pr/p5` | `<sha>` | `feat(trino): dbt init profile wizard` | 1 |
+
+Each `trino-pr/<part>` branch starts at `upstream/main` (`<sha>`) and holds the part's commit,
+after the commits of the parts in its "Needs first" column. `trino-pr/series` holds all parts in
+this order, and `trino-pr/integration` adds the fork-only `contrib/` and `.github/` commits. The
+`trino/p*` branches, locally and on the fork, hold the series from before the review fixes: do
+not open PRs from them.
 
 "Needs first" lists the symbols that a part uses from another part (analysis of 3 October,
 before the review fixes). Re-check it when the fixes have landed: build each part alone on
@@ -206,22 +212,24 @@ Your plan (clone, make a branch, port the code, open a PR) is right, with these 
   `abhishekguha996-ux/dbt-trino-v2`, which is already a GitHub fork of dbt-labs/dbt. The clone
   in `~/dbttrinoadapter/upstream/dbt` has `origin` = your fork and `upstream` = dbt-labs/dbt.
   A fresh clone works too.
-- Base every branch on the latest dbt-labs `main`, and port only `crates/` and `.changes/`.
+- Open each PR from its `trino-pr/<part>` branch (see [The PR series](#the-pr-series)). These
+  branches change only `crates/` and `.changes/`. Rebase the branch on the latest dbt-labs
+  `main` first.
 - Run the same gates as dbt Labs' CI before you push.
 
 ```sh
 git fetch upstream
-git switch -c trino/p1-profile-auth upstream/main
-git cherry-pick <reviewed Part 1 commit>
+git switch trino-pr/p1
+git rebase upstream/main          # if main has moved since the branch was made
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace
-git push origin trino/p1-profile-auth
-gh pr create -R dbt-labs/dbt --base main --head abhishekguha996-ux:trino/p1-profile-auth \
+git push origin trino-pr/p1       # after a rebase of a pushed branch: git push --force-with-lease
+gh pr create -R dbt-labs/dbt --base main --head abhishekguha996-ux:trino-pr/p1 \
   --title "feat(trino): profile schema and ADBC authentication" --body-file pr-part1.md
 ```
 
-For one PR (Option B), cherry-pick all seven commits onto one branch. For the live Linux
+For one PR (Option B), use `trino-pr/series` in the same way. For the live Linux
 evidence, push the same commits to a `trino-ready/…` branch of the fork: the fork workflow
 then runs the functional suite and the jaffle-shop build with the Linux binary.
 
