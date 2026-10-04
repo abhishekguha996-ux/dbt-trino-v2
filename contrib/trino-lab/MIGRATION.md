@@ -60,7 +60,7 @@ python3 compare_schemas.py \
 `compare_schemas.py` compares relation types, column types, row counts and an
 order-independent checksum of every relation present in both schemas. It only reads data. It
 is not in the release archive; get it from
-[contrib/trino-lab/scripts](https://github.com/abhishekguha996-ux/dbt-trino-v2/blob/trino-v2-adapter/contrib/trino-lab/scripts/compare_schemas.py).
+[contrib/trino-lab/scripts](https://github.com/abhishekguha996-ux/dbt-trino-v2/blob/trino-pr/integration/contrib/trino-lab/scripts/compare_schemas.py).
 Its limits:
 
 - It logs in with a user name and password only (HTTP Basic). It has no JWT, Kerberos or

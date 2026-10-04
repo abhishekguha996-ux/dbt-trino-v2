@@ -39,12 +39,13 @@ No release exists yet. Until there is one, use a workflow build.
 
 Each build of a branch keeps its archives for 90 days as workflow artifacts. Their names
 contain the branch and the short commit SHA, for example
-`dbt-trino-v2-trino-v2-adapter-1ff8a11-x86_64-unknown-linux-gnu`. You must be logged in to
+`dbt-trino-v2-trino-pr-integration-<sha>-x86_64-unknown-linux-gnu`. Use the builds of
+`trino-pr/integration`, the branch with the current adapter code. You must be logged in to
 GitHub (`gh auth login`) to download them:
 
 ```sh
 REPO=abhishekguha996-ux/dbt-trino-v2
-gh run list -R $REPO --workflow trino-fork-build.yml --branch trino-v2-adapter --status success --limit 1
+gh run list -R $REPO --workflow trino-fork-build.yml --branch trino-pr/integration --status success --limit 1
 gh run view <run-id> -R $REPO               # the ARTIFACTS section lists the archive names
 gh run download <run-id> -R $REPO -n <archive name>
 sha256sum -c dbt-trino-v2-*.tar.gz.sha256   # macOS: shasum -a 256 -c ...
@@ -190,7 +191,7 @@ dbt debug
 ## Build from source instead
 
 ```sh
-git clone https://github.com/abhishekguha996-ux/dbt-trino-v2.git && cd dbt-trino-v2
+git clone -b trino-pr/integration https://github.com/abhishekguha996-ux/dbt-trino-v2.git && cd dbt-trino-v2
 cargo build --release -p dbt-sa-cli --bin dbt     # needs Rust (rust-toolchain.toml) and protoc
 mkdir -p lib && cp /path/to/libadbc_driver_trino.* lib/
 export ADBC_DRIVER_PATH="$PWD/lib"

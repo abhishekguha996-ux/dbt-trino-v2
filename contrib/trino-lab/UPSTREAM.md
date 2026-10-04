@@ -280,12 +280,12 @@ and filed the driver issues.
 > model and a snapshot builds clean on Trino 483 with Iceberg and Delta Lake, and on Hive (no
 > snapshot, since Hive can't MERGE). It keeps the dbt-trino v1 profile fields and vendors the
 > dbt-trino v1.10.5 macros (unchanged in v1.10.6). Code and evidence:
-> https://github.com/abhishekguha996-ux/dbt-trino-v2 (contrib/trino-lab). I've signed the CLA.
-> Before I open PRs for #13131, two questions: (1) is anyone at dbt Labs or Starburst already
-> working on a Trino adapter or ADBC driver for v2? (2) Do you prefer parts based on main with a
-> merge plan, like Athena (#16252), or one PR, like Exasol (#15322)? The only open Trino PR,
-> #15345 (inline UDFs), touches four of the same files; my series does not include inline UDFs.
-> I can also hand over a Docker-based Trino test stack for your CI.
+> https://github.com/abhishekguha996-ux/dbt-trino-v2/tree/trino-pr/integration/contrib/trino-lab.
+> I've signed the CLA. Before I open PRs for #13131, two questions: (1) is anyone at dbt Labs or
+> Starburst already working on a Trino adapter or ADBC driver for v2? (2) Do you prefer parts
+> based on main with a merge plan, like Athena (#16252), or one PR, like Exasol (#15322)? The
+> only open Trino PR, #15345 (inline UDFs), touches four of the same files; my series does not
+> include inline UDFs. I can also hand over a Docker-based Trino test stack for your CI.
 
 ## Umbrella issue
 
@@ -306,7 +306,7 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > **Evidence:** jaffle-shop-classic (+incremental, +snapshot) builds clean on Trino 483
 > (Iceberg, Delta Lake, Hive on S3), plus a functional suite of about 100 tests, all
 > reproducible from
-> https://github.com/abhishekguha996-ux/dbt-trino-v2/tree/trino-v2-adapter/contrib/trino-lab.
+> https://github.com/abhishekguha996-ux/dbt-trino-v2/tree/trino-pr/integration/contrib/trino-lab.
 > The fork's CI runs both with the Linux x86_64 release binary.
 >
 > **Questions for dbt Labs:** the PR shape; Product/DX approval for the six model config keys
