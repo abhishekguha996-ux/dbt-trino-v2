@@ -7,7 +7,7 @@ file were checked on 3 October 2026.
 Before the first PR, in this order:
 
 1. Sign the [Individual CLA](#individual-cla).
-2. Finish the review fixes in the seven parts, rebuild the parts on the latest dbt-labs `main`,
+2. Finish the review fixes in the nine parts, rebuild the parts on the latest dbt-labs `main`,
    and record the checks and the live results with commit SHAs in
    [TEST-RESULTS.md](TEST-RESULTS.md).
 3. File the [driver issues](DRIVER-ISSUES.md).
@@ -157,6 +157,8 @@ Each part is one commit. Together they change only `crates/` and `.changes/`. `c
 | Part | Branch | Commit | Commit subject | Needs first |
 |---|---|---|---|---|
 | 0 | `trino-pr/p0` | `<sha>` | `fix(adbc): redact accessToken URI parameters in Builder Debug output` | — |
+| S1 | `trino-pr/s1` | `<sha>` | `fix(dbt-agate): show arrow.uuid columns as text instead of panicking` | — |
+| S2 | `trino-pr/s2` | `<sha>` | `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm` | — |
 | 1 | `trino-pr/p1` | `<sha>` | `feat(trino): profile schema and ADBC authentication` | — |
 | 2 | `trino-pr/p2` | `<sha>` | `feat(trino): relations, columns, SQL types and literals` | — |
 | 3a | `trino-pr/p3a` | `<sha>` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
@@ -169,6 +171,11 @@ after the commits of the parts in its "Needs first" column. `trino-pr/series` ho
 this order, and `trino-pr/integration` adds the fork-only `contrib/` and `.github/` commits. The
 `trino/p*` branches, locally and on the fork, hold the series from before the review fixes: do
 not open PRs from them.
+
+S1 and S2 fix bugs in code that every adapter uses. They use no Trino code, so they go upstream
+as small "Fixes" PRs of their own, each with cross-adapter tests. Part 2 needs them at run
+time: S1 to show uuid values as text, and S2 to compare Trino `decimal` and `timestamp(3)`
+values in unit tests.
 
 "Needs first" lists the symbols that a part uses from another part (analysis of 3 October,
 before the review fixes). Re-check it when the fixes have landed: build each part alone on
@@ -189,16 +196,22 @@ two open at a time. The merge plan for the umbrella issue:
 | Order | PR | Part | Needs first | State against `main` |
 |---|---|---|---|---|
 | 1 | #… | Part 0: redact `accessToken` in Builder debug output | | |
-| 2 | #… | Part 1: profile schema and ADBC authentication | | |
-| 3 | #… | Part 2: relations, columns, SQL types and literals | | |
-| 4 | #… | Part 3a: share the Exasol metadata adapter as GenericMetadataAdapter | | |
-| 5 | #… | Part 3b: metadata adapter, relation listing and get_relation | Part 3a | |
-| 6 | #… | Part 4: dbt-trino macro package, materializations and model configs | Part 2 | |
-| 7 | #… | Part 5: `dbt init` profile wizard | Part 1 | |
+| 2 | #… | S1: show `arrow.uuid` columns as text instead of panicking (all adapters) | | |
+| 3 | #… | S2: compare unit-test values of Arrow types without a formatting arm (all adapters) | | |
+| 4 | #… | Part 1: profile schema and ADBC authentication | | |
+| 5 | #… | Part 2: relations, columns, SQL types and literals | | |
+| 6 | #… | Part 3a: share the Exasol metadata adapter as GenericMetadataAdapter | | |
+| 7 | #… | Part 3b: metadata adapter, relation listing and get_relation | Part 3a | |
+| 8 | #… | Part 4: dbt-trino macro package, materializations and model configs | Part 2 | |
+| 9 | #… | Part 5: `dbt init` profile wizard | Part 1 | |
 
-**Option B: one PR (the Exasol pattern).** All seven commits in one PR from one branch, with
-one review and one Copybara sync. Exasol #15322 landed this way, but it was an extension of an
+**Option B: one PR (the Exasol pattern).** Parts 0 to 5 in one PR from one branch, with one
+review and one Copybara sync. Exasol #15322 landed this way, but it was an extension of an
 existing adapter, and it still took 65 days.
+
+**S1 and S2 are separate PRs in both options.** They are small, they fix code that every
+adapter uses, and they need no other part. `trino-pr/series` holds them too: rebase it on
+`main` after they have landed, before you use it for Option B.
 
 **Recommendation.** Propose Option A in Slack and in the umbrella issue, and offer Option B if
 `felipecrv` prefers one review. Do not open a strict stack: with Copybara, every later PR would
@@ -306,9 +319,12 @@ Put the real issue numbers into the last paragraph. Until the driver issues are 
 Every PR uses the repository template: first line `Resolves #<umbrella issue>`, then
 Problem, Solution and the checklist. Add "Related: #13131". Do not write "Resolves #13131":
 that issue is "Release Starburst Trino support", and `AdapterType::Starburst` stays
-`todo!()`. Each part has one `changie` entry (`--custom project=dbt-core --custom issue=13131
---custom author=abhishekguha996-ux`): "Under the Hood" for Parts 0 and 3a, "Features" for the
-others.
+`todo!()`. S1 and S2 fix bugs for every adapter: open a bug issue for each, start the PR with
+`Resolves #<that issue>`, and add "Related: #<umbrella issue>". Each part has one `changie`
+entry (`--custom project=dbt-core --custom issue=13131 --custom author=abhishekguha996-ux`):
+"Fixes" for S1 and S2 (without the `[Trino]` prefix), "Under the Hood" for Parts 0 and 3a,
+"Features" for the others. The S1 and S2 entries name issue 13131; when their bug issues
+exist, set `issue` in each entry to its bug issue.
 
 ### Part 0 — `fix(adbc): redact accessToken URI parameters in Builder Debug output`
 
@@ -321,6 +337,59 @@ would show the JWT.
 **Solution:** Add `accessToken` to the redacted query keys. No new methods or traits. One unit
 test, on a `Backend::Generic` builder (the backend that carries the JWT). If you prefer no
 change in `dbt-adbc`, I'll drop this part.
+
+### S1 — `fix(dbt-agate): show arrow.uuid columns as text instead of panicking`
+
+**Problem:** A query result with a uuid column crashes dbt. Drivers return a uuid as
+`FixedSizeBinary(16)` with the canonical `arrow.uuid` extension type; adbc-drivers/trino does
+this for Trino's `uuid`. Agate has no uuid type. The conversion to Agate cannot cast the column
+to text, and `AgateTable::new` unwraps that error, so `run_query`, enforced contracts and unit
+tests panic.
+
+**Solution:**
+- Agate shows `arrow.uuid` columns as canonical text, for example
+  `12151fd2-7586-11e9-8f9e-2a86e4085a59`, as dbt v1 does. The original Arrow batch keeps the
+  `FixedSizeBinary(16)` column.
+- `AgateTable::try_new` returns an error instead of a panic when a column cannot be shown as
+  text. The query path in `AdapterImpl` uses it, so such a column fails the query with an
+  error.
+- A `FixedSizeBinary(16)` column without the extension is not treated as a uuid.
+
+**Behavior change for all adapters:** an `arrow.uuid` column shows as text instead of crashing
+dbt. A query result that Agate cannot show as text fails with an error instead of a panic.
+
+**Tests:** an `arrow.uuid` column becomes canonical text (a null stays null); a
+`FixedSizeBinary(16)` column without the extension is not changed; a column that cannot be
+text gives an error, not a panic.
+
+### S2 — `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm`
+
+**Problem:** A unit test compares the actual and expected rows by the text of each value
+(`value_as_string` in `crates/dbt-tasks-sa/src/materialize.rs`). Only `Int32`, `Int64`,
+`Float32`, `Float64`, `Utf8`, `Boolean`, `Decimal128`, `Timestamp` in seconds or nanoseconds,
+and `Date32` have a formatting arm. Every other Arrow type prints `[unsupported]` on both
+sides, so the test never sees a difference in such a column, not even NULL against a value. I
+found this with adbc-drivers/trino, which returns `decimal(10, 2)` as `Decimal64` and
+`timestamp(3)` in milliseconds.
+
+**Solution:** Every Arrow type without an arm compares by its Arrow display text
+(`array_value_to_string`). Binary values show as UTF-8 text when they are valid UTF-8, and as
+hex otherwise.
+
+**Behavior change for all adapters:** unit tests now compare these columns, for example:
+- microsecond timestamps: `TIMESTAMP` and `DATETIME` on BigQuery, Databricks, Postgres,
+  Redshift and DuckDB
+- millisecond timestamps, `Date64`, `Time32` and `Time64`
+- `Int8`, `Int16` and unsigned integers; `Decimal32`, `Decimal64` and `Decimal256` (BigQuery
+  `BIGNUMERIC`)
+- dictionary and binary columns
+- NULL against a value, in all of these columns
+
+A unit test that passed only because both sides showed `[unsupported]` can now fail. The
+changie entry says so.
+
+**Tests:** cross-adapter cases for `Timestamp(µs, UTC)`, `Int16`, `Time64`, NULL against a
+value and `BinaryView`, and for `Decimal64` and millisecond timestamps.
 
 ### Part 1 — `feat(trino): profile schema and ADBC authentication`
 
@@ -382,18 +451,27 @@ builder, SQL type metadata key, seed column naming and the microbatch event-time
   → `DECIMAL(20, 0)`. `TrinoColumn` type labels and predicates, and `from_description` keeps
   nested types verbatim (v1 `column.py`).
 - Unit-test fixtures keep their types. The driver reports only base type names (`DECIMAL`,
-  `VARCHAR`), so the full type is rebuilt from the driver's precision, scale and length
-  metadata: a `decimal(10,2)` input stays `DECIMAL(10, 2)`, so 12.34 stays 12.34. Timestamp
-  literals use a space separator, and `timestamp with time zone` fixtures work. This follows
-  the per-adapter fixture typing of 68ad837 (BigQuery) and c157a08 (DuckDB).
-- `uuid` values no longer panic dbt. The driver returns them as the `arrow.uuid` extension
-  type (16 bytes); `dbt-agate` now shows them as canonical text and returns an error, not a
-  panic, for other values that it cannot show as text. This shared change is safe for every
-  adapter and has tests.
+  `VARCHAR`), so the full type is rebuilt: `DECIMAL(p, s)` from the Arrow decimal type, and
+  `VARCHAR(n)`, `CHAR(n)`, `TIME(p)` and `TIMESTAMP(p)` from the driver's length and precision
+  metadata. A `decimal(10,2)` input stays `DECIMAL(10, 2)`, so 12.34 stays 12.34. For an
+  ephemeral tested model, the expected types come from the Arrow schema of the probe query in
+  the same way. Trino allows a precision of up to 12 for `timestamp` and `time`; above 9, the
+  Arrow type uses nanoseconds and the fixture keeps the declared type. Timestamp literals use a
+  space separator, and `timestamp with time zone` and `uuid` columns are typed correctly. This
+  follows the per-adapter fixture typing of 68ad837 (BigQuery) and c157a08 (DuckDB).
 - Seeds get `DATE`/`TIMESTAMP` typed literals. The microbatch filter uses `TIMESTAMP '… UTC'`
   literals, in one arm shared with Exasol (v1 `relation.py`).
 
 Each change links the v1 code that it mirrors.
+
+**Shared files, Trino-only behavior:** `BaseRelation::resolve_component` (dbt-schemas),
+`build_standard` (Exasol's `build_exasol`, renamed) and the microbatch filter arm shared with
+Exasol. Other adapters behave as before. The fixes for every adapter are in S1 and S2.
+
+**Needs S1 and S2 at run time:** without S1, a uuid value in `run_query`, an enforced contract
+or a unit test crashes dbt. Without S2, unit tests do not compare the `decimal` and
+`timestamp(3)` values that adbc-drivers/trino returns as `Decimal32`, `Decimal64` and
+millisecond timestamps.
 
 ### Part 3a — `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter`
 
