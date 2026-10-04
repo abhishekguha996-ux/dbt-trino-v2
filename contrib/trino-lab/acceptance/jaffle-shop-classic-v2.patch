@@ -41,6 +41,21 @@ index 0000000..864dd00
 +{% if is_incremental() %}
 +where order_date >= (select max(order_date) from {{ this }})
 +{% endif %}
+diff --git a/models/orders_incremental.yml b/models/orders_incremental.yml
+new file mode 100644
+index 0000000..92be1a4
+--- /dev/null
++++ b/models/orders_incremental.yml
+@@ -0,0 +1,9 @@
++version: 2
++
++models:
++  - name: orders_incremental
++    columns:
++      - name: order_id
++        data_tests:
++          - unique
++          - not_null
 diff --git a/models/schema.yml b/models/schema.yml
 index 381349c..5b2ba39 100644
 --- a/models/schema.yml
