@@ -46,7 +46,8 @@ jobs:
     name: Rust checks (Trino crates)
     if: github.repository != 'dbt-labs/dbt'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # rust-cache saves only after a successful run, so the limit must fit a cold build.
+    timeout-minutes: 150
     env:
       # The crates that the Trino series touches.
       CRATES: >-
@@ -221,7 +222,7 @@ jobs:
         run: contrib/trino-lab/acceptance/run_jaffle_shop.sh "$DBT_BIN" "$RUNNER_TEMP/evidence/jaffle-shop"
 
       - name: Save the stack logs
-        if: failure()
+        if: ${{ failure() && steps.stack.outcome != 'skipped' }}
         run: docker compose -f contrib/trino-lab/stack/compose.yaml logs --no-color > "$RUNNER_TEMP/evidence/stack.log" 2>&1
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # actions/upload-artifact@v4
