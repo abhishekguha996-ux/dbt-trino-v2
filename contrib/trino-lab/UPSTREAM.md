@@ -387,9 +387,10 @@ dbt. A query result that Agate cannot show as text fails with an error instead o
 a uuid as 32 hex digits (the Arrow display of `FixedSizeBinary(16)`). `run_query`, contracts
 and unit tests show the canonical text.
 
-**Tests:** an `arrow.uuid` column becomes canonical text (a null stays null); a
-`FixedSizeBinary(16)` column without the extension is not changed; a column that cannot be
-text gives an error, not a panic.
+**Tests:** an `arrow.uuid` column becomes canonical text (a null stays null, and the Arrow
+batch keeps the `FixedSizeBinary(16)` column); a `FixedSizeBinary(16)` column without the
+extension stays binary, which Agate cannot show as text, so `AgateTable::try_new` returns an
+error instead of a panic.
 
 ### S2 — `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm`
 
@@ -402,8 +403,8 @@ found this with adbc-drivers/trino, which returns `decimal(10, 2)` as `Decimal64
 `timestamp(3)` in milliseconds.
 
 **Solution:** Every Arrow type without an arm compares by its Arrow display text
-(`array_value_to_string`). Binary values show as UTF-8 text when they are valid UTF-8, and as
-hex otherwise.
+(`array_value_to_string`). A binary column compares as text when all its values are valid
+UTF-8, and as hex otherwise.
 
 **Behavior change for all adapters:** unit tests now compare these columns, for example:
 - microsecond timestamps: `TIMESTAMP` and `DATETIME` on BigQuery, Databricks, Postgres,
@@ -417,8 +418,9 @@ hex otherwise.
 A unit test that passed only because both sides showed `[unsupported]` can now fail. The
 changie entry says so.
 
-**Tests:** cross-adapter cases for `Timestamp(µs, UTC)`, `Int16`, `Time64`, NULL against a
-value and `BinaryView`, and for `Decimal64` and millisecond timestamps.
+**Tests:** cross-adapter cases for `Int16`, `Decimal64`, millisecond timestamps,
+`Timestamp(µs, UTC)`, `Time64`, NULL against a value, and `BinaryView` values as text and as
+hex.
 
 ### Part 1 — `feat(trino): profile schema and ADBC authentication`
 
