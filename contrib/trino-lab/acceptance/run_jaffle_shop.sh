@@ -10,10 +10,14 @@
 #
 # Every build keeps its console output, dbt.log, query_log.sql and run_results.json in
 # results-dir/<catalog>/run<n>/ (default results-dir: a new temporary directory).
-# TRINO_HOST and TRINO_PORT select the Trino endpoint (default 127.0.0.1:8080).
+# TRINO_HOST and TRINO_PORT select the Trino endpoint (default 127.0.0.1:8080). Each catalog
+# builds in the schema <SCHEMA_PREFIX>jaffle_acceptance_<catalog> (default prefix: ft_, as in
+# the functional suite), which the script drops first, so run 1 always creates the relations.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 dbt="${1:-$here/../../../target/debug/dbt}"
+# The builds run in the jaffle-shop clone, so make a relative path absolute first.
+case "$dbt" in */*) dbt="$(cd "$(dirname "$dbt")" && pwd)/$(basename "$dbt")" ;; esac
 work="$(mktemp -d)"
 results="${2:-$work/results}"
 mkdir -p "$results"
@@ -29,6 +33,8 @@ git checkout -q fd7bfac   # 2024-04-18, pinned
 git apply "$here/jaffle-shop-classic-v2.patch"
 export DBT_ALLOW_EXPERIMENTAL_ADAPTERS=yes
 for catalog in iceberg delta hive; do
+  schema="${SCHEMA_PREFIX-ft_}jaffle_acceptance_$catalog"
+  python3 "$here/../scripts/stack.py" sql "drop schema if exists $catalog.\"$schema\" cascade"
   mkdir -p "profiles_$catalog"
   cat > "profiles_$catalog/profiles.yml" <<YML
 jaffle_shop:
@@ -41,7 +47,7 @@ jaffle_shop:
       port: ${TRINO_PORT:-8080}
       user: admin
       database: $catalog
-      schema: jaffle_acceptance_$catalog
+      schema: $schema
       threads: 4
       roles: {hive: admin}
 YML
