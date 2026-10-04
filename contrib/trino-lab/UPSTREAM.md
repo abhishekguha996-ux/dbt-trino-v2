@@ -487,17 +487,30 @@ adapter name. Exasol and DuckDB tests are unchanged.
 
 ### Part 3b — `feat(trino): metadata adapter, relation listing and get_relation`
 
-Trino uses the generic metadata adapter. At startup it hydrates the relation cache: it lists
-every schema in parallel from `<catalog>.information_schema.tables` (a MapReduce, as Fabric
-does) and finds materialized views through `system.metadata.materialized_views`, as v1's
-`trino__list_relations_without_caching` does. So `--defer` works without `--favor-state`, and
-dbt sends one listing per schema instead of one per thread. The catalog, schema and table
-literals in this SQL are lowercase whatever the quote policy, like v1's `| lower`. Exasol keeps
-its empty hydration. Transactions are reported as unsupported (dbt-trino runs in autocommit),
-and `list_schemas` reads `schema_name`. DuckDB's `get_relation` SQL is byte-identical.
+Trino uses the generic metadata adapter. It lists relations from
+`<catalog>.information_schema.tables` and finds materialized views through
+`system.metadata.materialized_views`, as v1's `trino__list_relations_without_caching` does. The
+catalog, schema and table literals in this SQL are lowercase whatever the quote policy, like
+v1's `| lower`. Without a catalog (for example `get_relation(database=none, ...)`), the SQL
+reads the session catalog, as v1 does. DuckDB's `get_relation` SQL is byte-identical.
 
-**Tests:** listing SQL for mixed-case names, materialized-view rows, the transactions
-feature, the `list_schemas` column and cache hydration.
+When dbt needs the relation cache (with `--defer`, and before a dev-clone of the run cache),
+Trino hydrates it: it lists every schema in parallel and reports progress per schema. A schema
+that fails to list keeps its error, as Redshift does, and the other schemas are cached. So
+`--defer` works without `--favor-state`. Exasol keeps its empty hydration.
+
+Also for Trino: in `dbt docs generate`, a relation with a NULL `table_owner` has no owner (not
+an empty one); transactions are reported as unsupported (dbt-trino runs in autocommit); and
+`list_schemas` reads `schema_name`.
+
+**Known limit:** `dbt run` and `dbt build` do not hydrate the cache in this v2 build. So with N
+threads, a schema that is not cached yet can be listed up to N times: the shared `get_relation`
+path has no single-flight lock. dbt-trino v1 lists it once. A per-schema lock in
+`Adapter::get_relation` would fix this for every adapter, as a separate change.
+
+**Tests:** listing SQL for mixed-case names and for an empty catalog, materialized-view rows,
+the `get_relation` row mapping, a NULL table owner, the transactions feature, the
+`list_schemas` column, and cache hydration, also when one schema fails to list.
 
 ### Part 4 — `feat(trino): dbt-trino macro package, materializations and model configs`
 

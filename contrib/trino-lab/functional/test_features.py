@@ -695,8 +695,8 @@ class TestCommands(TrinoTestCase):
                 self.assertEqual(cloned, [[2]])
 
     def test_defer_without_favor_state(self):
-        # The relation cache is hydrated at startup, so dbt knows that `a` is missing from the
-        # development schema and defers to the state relation (as dbt-trino v1 does).
+        # --defer hydrates the relation cache of the development schema first, so dbt knows that
+        # `a` is missing there and defers to the state relation (as dbt-trino v1 does).
         for catalog in self.catalogs("memory", "iceberg"):
             with self.subTest(catalog=catalog):
                 p = self.project(catalog, {
