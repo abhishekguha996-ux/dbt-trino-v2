@@ -83,8 +83,8 @@ build with the Linux x86_64 archive against this stack.
 Rust checks for the crates that the series touches:
 
 ```sh
-CRATES="-p dbt-auth -p dbt-adbc -p dbt-adapter-sql -p dbt-adapter -p dbt-adapter-core \
-  -p dbt-schemas -p dbt-loader -p dbt-profile-schemas -p dbt-init -p dbt-df-providers"
+CRATES="-p dbt-adbc -p dbt-auth -p dbt-schemas -p dbt-adapter-sql -p dbt-adapter -p dbt-agate \
+  -p dbt-df-providers -p dbt-loader -p dbt-tasks-sa -p dbt-profile-schemas -p dbt-init"
 cargo fmt --all --check
 cargo clippy $CRATES --all-targets -- -D warnings
 cargo nextest run $CRATES

@@ -10,14 +10,14 @@
 # shipped. Not intended for the upstream repository.
 #
 # **when?**
-# Pushes to the trino-v2-adapter and trino-ready/** branches, `trino-v*` tags (which also
-# publish a GitHub release), and manual dispatch.
+# Pushes to the trino-v2-adapter, trino-ready/** and trino-pr/** branches, `trino-v*` tags
+# (which also publish a GitHub release), and manual dispatch.
 
 name: Trino adapter build (fork)
 
 on:
   push:
-    branches: [trino-v2-adapter, "trino-ready/**"]
+    branches: [trino-v2-adapter, "trino-ready/**", "trino-pr/**"]
     tags: ["trino-v*"]
     paths:
       - "crates/**"
@@ -51,8 +51,8 @@ jobs:
     env:
       # The crates that the Trino series touches.
       CRATES: >-
-        -p dbt-auth -p dbt-adbc -p dbt-adapter-sql -p dbt-adapter -p dbt-adapter-core
-        -p dbt-schemas -p dbt-loader -p dbt-profile-schemas -p dbt-init -p dbt-df-providers
+        -p dbt-adbc -p dbt-auth -p dbt-schemas -p dbt-adapter-sql -p dbt-adapter -p dbt-agate
+        -p dbt-df-providers -p dbt-loader -p dbt-tasks-sa -p dbt-profile-schemas -p dbt-init
       # Same as upstream ci.yml: parser and Jinja tests overflow the default thread stack.
       RUST_MIN_STACK: "8388608"
     steps:
@@ -74,30 +74,22 @@ jobs:
           # shellcheck disable=SC2086 # CRATES holds several -p arguments
           cargo nextest run $CRATES
 
-  build:
+  # One build job per target, so that the live job waits only for the Linux archive. Both jobs
+  # run the same steps (the YAML anchor build-steps) with a one-entry matrix.
+  build-linux:
     name: Build (${{ matrix.target }})
     if: github.repository != 'dbt-labs/dbt'
     needs: test
-    runs-on: ${{ matrix.os }}
-    container:
-      image: ${{ matrix.container }}
+    runs-on: ubuntu-24.04
+    container: quay.io/pypa/manylinux_2_28_x86_64
     strategy:
-      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-24.04
-            container: quay.io/pypa/manylinux_2_28_x86_64
             driver_platform: linux_amd64
             driver_sha256: 49ddc23d5d2e2f859bee554c005aff2ecbc17312a9f25c84d14834b68fbeecfc
             library: libadbc_driver_trino.so
-          - target: aarch64-apple-darwin
-            os: macos-14
-            container: ""
-            driver_platform: macos_arm64
-            driver_sha256: 21f855023ced861ae3fec1b785ca0e5d313e9748425cae651ff131c65b070c15
-            library: libadbc_driver_trino.dylib
-    steps:
+    steps: &build-steps
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # actions/checkout@v4
 
       - name: Install Rust
@@ -171,6 +163,20 @@ jobs:
             dist/${{ env.PKG }}.tar.gz
             dist/${{ env.PKG }}.tar.gz.sha256
 
+  build-macos:
+    name: Build (${{ matrix.target }})
+    if: github.repository != 'dbt-labs/dbt'
+    needs: test
+    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            driver_platform: macos_arm64
+            driver_sha256: 21f855023ced861ae3fec1b785ca0e5d313e9748425cae651ff131c65b070c15
+            library: libadbc_driver_trino.dylib
+    steps: *build-steps
+
   # ------------------------------------------------------------------
   # Runs the shipped Linux archive, as a user installs it, against the lab stack
   # (contrib/trino-lab/stack: Trino 483, Hive metastore, S3). The stack needs about 6 GB of
@@ -179,7 +185,7 @@ jobs:
   live:
     name: Live suite (Linux x86_64)
     if: github.repository != 'dbt-labs/dbt'
-    needs: build
+    needs: build-linux
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     defaults:
@@ -235,7 +241,7 @@ jobs:
   release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/trino-v') && github.repository != 'dbt-labs/dbt'
-    needs: [build, live]
+    needs: [build-linux, build-macos, live]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

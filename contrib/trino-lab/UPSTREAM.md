@@ -242,14 +242,16 @@ git rebase upstream/main          # if main has moved since the branch was made
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace
-git push origin trino-pr/p1       # after a rebase of a pushed branch: git push --force-with-lease
+git push origin trino-pr/p1       # after a rebase of a pushed branch: add --force-with-lease
 gh pr create -R dbt-labs/dbt --base main --head abhishekguha996-ux:trino-pr/p1 \
   --title "feat(trino): profile schema and ADBC authentication" --body-file pr-part1.md
 ```
 
-For one PR (Option B), use `trino-pr/series` in the same way. For the live Linux
-evidence, push the same commits to a `trino-ready/…` branch of the fork: the fork workflow
-then runs the functional suite and the jaffle-shop build with the Linux binary.
+For one PR (Option B), use `trino-pr/series` in the same way. For the live Linux evidence,
+push `trino-pr/integration` (the series plus the fork-only `contrib/` and `.github/` commits)
+to the fork: the fork workflow then runs the Rust checks, the functional suite and the
+jaffle-shop build with the Linux binary. The other `trino-pr/` branches have no fork workflow,
+so a push of them starts no run.
 
 ## Coordination with #15345
 
