@@ -415,46 +415,77 @@ value and `BinaryView`, and for `Decimal64` and millisecond timestamps.
 ### Part 1 — `feat(trino): profile schema and ADBC authentication`
 
 **Problem:** `AdapterType::Trino` exists, but `backend_of` is `todo!("Trino")`,
-`TrinoDbConfig` has six fields, and there is no Trino auth, so any Trino profile panics.
+`TrinoDbConfig` has eight fields, and there is no Trino auth, so any Trino profile panics.
 
 **Solution:**
 - `TrinoDbConfig` accepts the dbt-trino v1 credential fields (`catalog` aliases `database`),
-  so existing profiles load unchanged. This includes the `starburst_*` fields of dbt-trino
-  1.10.3+; `starburst_secret_key` is never serialized.
+  including the `starburst_*` fields of dbt-trino 1.10.3+; `starburst_secret_key` is never
+  serialized. v1 profiles load unchanged, except for the differences listed below.
 - `dbt-auth/src/trino` follows the crate's pattern: `parse_auth` builds a `TrinoAuthIR`
   (`None`, `Ldap`, `Jwt`, `Kerberos`), which `apply` and `apply_connection_args` turn into
   trino-go-client v0.333.0 DSN options, wired with `auth_configure_pipeline!` like the Exasol
   and ClickHouse modules:
   - methods `none`, `ldap`, `jwt` and `kerberos` (keytab)
-  - `roles`, `session_properties`, `client_tags`, `timezone`, `query_timeout` (seconds or a
-    duration)
-  - `cert`: a CA bundle, `true`, or `false` (the driver's `SSLVerification=NONE`)
+  - `roles`, `session_properties`, `client_tags`, `timezone` and `query_timeout`
+  - `cert`: a CA bundle, `true`, or `false` (`SSLVerification=NONE`, which the ADBC driver
+    reads itself)
   - `X-Trino-Source: dbt-trino-<version>`, so resource-group selectors keep matching
+- `query_timeout` is not a v1 field. It takes a positive number of seconds (an integer, or a
+  decimal string such as `"1.5"`) or a Go duration such as `30m`. Zero fails with its own
+  message, because trino-go-client would cancel every query at once. Without the key, the
+  driver stops a query after 10h (`trino.DefaultQueryTimeout`).
 - Clear configuration errors for: a `host` with a scheme, port or path; an invalid
   `query_timeout`; the methods the driver can't perform (`certificate`, `oauth`,
-  `oauth_console`, `gssapi`); `http_headers`, `impersonation_user`, `starburst_url`; Kerberos
-  options other than their v1 defaults; and `role` (the message points to `roles`).
+  `oauth_console`, `gssapi`); `http_headers`, `impersonation_user` and `starburst_url` (an
+  empty string or mapping counts as unset); Kerberos options other than their v1 defaults; and
+  `role` (the message points to `roles`).
 - `backend_of(Trino)` is `Backend::Generic { library_name: "adbc_driver_trino" }`. The driver is
   loaded by name, with no CDN, as the contribute page describes for community adapters. No
   `dbt-adbc` change.
 
-**Notes for review:**
-- TLS: without `cert`, v2 verifies the server certificate. dbt-trino v1 verifies only when
+**Differences from v1:**
+- A URL host such as `https://trino.example.com:8443` is rejected with a message that asks for
+  the separate keys. v1's trino-python-client accepts it and lets the URL's scheme and port
+  override `http_scheme` and `port`.
+- `cert` with `http_scheme: http` fails; v1 ignores it.
+- TLS: without `cert`, v2 verifies the server certificate. v1 verifies only when
   `require_certificate_validation` is on (default False). This is deliberate and documented.
+- `timezone` is sent, but trino-go-client reads it only from v0.336.0 on. Driver go/v0.5.3 pins
+  v0.333.0, so the session keeps the server's time zone; the driver's `main` branch already
+  uses v0.336.0.
+- Without `query_timeout`, a query stops after 10h; v1 has no client-side query timeout.
+
+**Notes for review:**
 - The `cert: false` and `retries` warnings go to the `AuthWarningPrinter`. dbt builds auth with
   `NoopAuthWarningPrinter` today, so they are not shown; this shared gap is not changed here.
 - `prepared_statements_enabled` maps to `explicitPrepare`. It has no visible effect, because
   dbt v2 renders bindings as SQL literals.
-- `timezone` is sent, but trino-go-client reads it only from v0.336.0 on. Driver go/v0.5.3 pins
-  v0.333.0; the driver's `main` branch already uses v0.336.0.
-- The accessors follow `crates/dbt-auth/AGENTS.md`: secrets use `get_string`, so a YAML number
-  is accepted, as in the Exasol and ClickHouse modules.
+- dbt-auth reads secrets with `get_string`, as `crates/dbt-auth/AGENTS.md` asks. But profile
+  parsing (`TrinoDbConfig.password` and `jwt_token` are `Option<String>`, the same as in Exasol
+  and ClickHouse) still rejects a numeric password and prints it in the error. This is a shared
+  gap that this PR does not change.
 
-**Tests:** unit tests for every method and option (the DSN is byte-identical to the
-pre-refactor output for every earlier test input), host, port and `query_timeout` validation,
-Kerberos options and `krb5_config` precedence, secret handling and warnings; a `profiles.rs`
-parse test. Live-tested over HTTPS with a password (also one with URL-special characters), a
-JWT, a CA bundle and `cert: false`.
+**Semantic changes in dbt-auth**, as `crates/dbt-auth/AGENTS.md` asks (this adds a backend and
+changes no existing one):
+- Borrowed data: `TrinoAuthIR` borrows from the profile. A `Cow` is owned only for `get_string`
+  values given as YAML numbers or booleans, the `KRB5_CONFIG` fallback and the `s` suffix of a
+  `query_timeout` in seconds.
+- Accessors: `password` and `jwt_token` use `get_string`, as the Exasol and ClickHouse backends
+  read secrets, and so do `port` and `query_timeout`; the other text fields use `get_str`.
+- Accepted input shapes: an empty string or mapping counts as unset for `impersonation_user`,
+  `http_headers`, `role` and `starburst_url`; `query_timeout` takes an integer or a string.
+- Enum structure: `TrinoAuthIR { None, Ldap, Jwt, Kerberos }` is new.
+- Normalization: a `query_timeout` in seconds gets an `s` suffix; `roles` and
+  `session_properties` become sorted `key:value;key:value` strings and `client_tags` a
+  comma-separated list; a Kerberos principal is split into principal and realm.
+
+Human verification is required before committing this change.
+
+**Tests:** unit tests for every method, each with its full URI; the options; host, port and
+`query_timeout` validation, with zero and decimal seconds; the unsupported options, with empty
+values; Kerberos options and `krb5_config` precedence; secret handling and warnings; a
+`profiles.rs` parse test. Live-tested over HTTPS with a password (also one with URL-special
+characters), a JWT, a CA bundle and `cert: false`.
 
 ### Part 2 — `feat(trino): relations, columns, SQL types and literals`
 

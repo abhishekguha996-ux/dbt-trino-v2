@@ -131,7 +131,7 @@ trino:
 | `roles` | Catalog roles, for example `{hive: analyst, system: ALL}` |
 | `session_properties` | Trino session properties, for example `{query_max_run_time: 2h}` |
 | `client_tags` | List of client tags for resource groups |
-| `query_timeout` | Client-side timeout: a number of seconds or a duration such as `300s`, `30m` or `1h` |
+| `query_timeout` | Client-side timeout: a positive number of seconds or a duration such as `300s`, `30m` or `1h`. Without it, the driver stops a query after 10 hours |
 | `timezone` | Session time zone. Driver `go/v0.5.3` does not send it yet, so the session uses the server's time zone |
 | `prepared_statements_enabled` | Accepted for dbt-trino compatibility; it has no visible effect |
 | `retries` | Accepted for dbt-trino compatibility and ignored |
@@ -151,6 +151,8 @@ support them. dbt stops with an error that names the option:
 - `impersonation_user`
 - `http_headers`
 - `starburst_url` (Starburst Data Discovery sync); the other `starburst_*` keys are accepted
+- a URL in `host`, such as `https://trino.example.com:8443`; put the scheme in `http_scheme`
+  and the port in `port`
 
 ## Trino specifics
 
