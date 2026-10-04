@@ -445,9 +445,18 @@ impl AgateTable {
     /// `row_names` is an optional array of strings with the same length as the number
     /// of rows in the `RecordBatch`.
     pub fn new(batch: Arc<RecordBatch>, row_names: Option<Arc<StringViewArray>>) -> Self {
-        let flat = FlatRecordBatch::try_new(batch).unwrap();
+        Self::try_new(batch, row_names).unwrap()
+    }
+
+    /// Fallible [AgateTable::new]: returns an error when a column cannot be converted to
+    /// Agate values (an Arrow type that cannot be cast to text, for example).
+    pub fn try_new(
+        batch: Arc<RecordBatch>,
+        row_names: Option<Arc<StringViewArray>>,
+    ) -> Result<Self, ArrowError> {
+        let flat = FlatRecordBatch::try_new(batch)?;
         let repr = TableRepr::new(Arc::new(flat), None, row_names);
-        Self::from_repr(Arc::new(repr))
+        Ok(Self::from_repr(Arc::new(repr)))
     }
 
     /// Create an AgateTable from an Arrow RecordBatch.
@@ -1423,8 +1432,8 @@ mod tests {
     use crate::test_fixtures::*;
     use crate::*;
     use arrow::array::{
-        ArrayRef, BooleanBuilder, DictionaryArray, Float64Builder, Int32Array, Int32Builder,
-        ListBuilder, StringBuilder, StringViewBuilder, StructBuilder,
+        ArrayRef, BooleanBuilder, DictionaryArray, FixedSizeBinaryArray, Float64Builder,
+        Int32Array, Int32Builder, ListBuilder, StringBuilder, StringViewBuilder, StructBuilder,
     };
     use arrow::array::{GenericListArray, StringArray};
     use arrow::csv::reader::ReaderBuilder;
@@ -3067,5 +3076,52 @@ mod tests {
                 .contains("Table.join: right_table must be a Table"),
             "{err}"
         );
+    }
+
+    fn fixed_size_binary_batch(field: Field, values: Vec<Option<&[u8]>>) -> Arc<RecordBatch> {
+        let array = FixedSizeBinaryArray::try_from_sparse_iter_with_size(
+            values.into_iter(),
+            match field.data_type() {
+                DataType::FixedSizeBinary(size) => *size,
+                other => unreachable!("{other}"),
+            },
+        )
+        .unwrap();
+        Arc::new(
+            RecordBatch::try_new(Arc::new(Schema::new(vec![field])), vec![Arc::new(array)])
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn uuid_values_are_canonical_text() {
+        let uuid = Field::new("u", DataType::FixedSizeBinary(16), true)
+            .with_metadata([("ARROW:extension:name".to_string(), "arrow.uuid".to_string())].into());
+        let bytes: [u8; 16] = [
+            0x12, 0x15, 0x1f, 0xd2, 0x75, 0x86, 0x11, 0xe9, 0x8f, 0x9e, 0x2a, 0x86, 0xe4, 0x08,
+            0x5a, 0x59,
+        ];
+        let table =
+            AgateTable::from_record_batch(fixed_size_binary_batch(uuid, vec![Some(&bytes), None]));
+
+        assert_eq!(table.column_types()[0].type_name(), "Text");
+        assert_eq!(
+            table.cell(0, 0),
+            Some(Value::from("12151fd2-7586-11e9-8f9e-2a86e4085a59"))
+        );
+        assert_eq!(table.cell(1, 0), Some(Value::from(())));
+        assert_eq!(
+            table.original_record_batch().schema().field(0).data_type(),
+            &DataType::FixedSizeBinary(16)
+        );
+    }
+
+    #[test]
+    fn try_new_errors_on_values_that_cannot_be_text() {
+        // Without the arrow.uuid extension, FixedSizeBinary(16) stays binary, which Agate cannot
+        // convert to text
+        let field = Field::new("b", DataType::FixedSizeBinary(16), true);
+        let batch = fixed_size_binary_batch(field, vec![Some(&[0x12; 16])]);
+        assert!(AgateTable::try_new(batch, None).is_err());
     }
 }

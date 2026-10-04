@@ -1,0 +1,7 @@
+kind: Fixes
+body: Show arrow.uuid columns as UUID text in run_query, enforced contracts and unit tests instead of panicking, and return an error instead of a panic when Agate cannot convert a result column
+time: 2026-10-04T17:33:01.965103-04:00
+custom:
+    author: abhishekguha996-ux
+    issue: ""
+    project: dbt-core

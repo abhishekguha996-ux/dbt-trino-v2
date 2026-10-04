@@ -919,7 +919,8 @@ impl AdapterImpl {
             _ => last_batch,
         };
 
-        let table = AgateTable::from_record_batch(Arc::new(last_batch));
+        let table = AgateTable::try_new(Arc::new(last_batch), None)
+            .map_err(arrow_error_to_adapter_error)?;
 
         Ok((response, table))
     }

@@ -4,14 +4,14 @@
 
 use arrow::array::PrimitiveBuilder;
 use arrow::array::{
-    Array, DictionaryArray, GenericListArray, OffsetSizeTrait, RecordBatch, RecordBatchOptions,
-    StructArray,
+    Array, AsArray, DictionaryArray, FixedSizeBinaryArray, GenericListArray, OffsetSizeTrait,
+    RecordBatch, RecordBatchOptions, StringArray, StructArray,
 };
 use arrow::compute::CastOptions;
 use arrow::datatypes::Int64Type;
 use arrow_data::ArrayData;
 use arrow_schema::{ArrowError, DataType, Field, Schema};
-use core::fmt;
+use core::fmt::{self, Write as _};
 use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -27,6 +27,9 @@ use crate::converters::{ArrayConverter, make_array_converter};
 /// "DateTime"      Data representing dates with times.
 /// "TimeDelta"     Data representing the interval between two dates and/or times.
 const AGATE_DTYPE_METADATA_KEY: &str = "AGATE:dtype";
+
+/// Name of the canonical Arrow extension type for UUIDs (`FixedSizeBinary(16)` storage).
+const ARROW_UUID_EXTENSION_NAME: &str = "arrow.uuid";
 
 /// Takes an Arrow struct array and flattens nested columns into separate columns.
 ///
@@ -170,6 +173,14 @@ impl FlattenRecordBatchState {
             | DataType::Time64(_)
             | DataType::Duration(_)
             | DataType::Interval(_) => self.emit_flat_col(field, Some("TimeDelta"), column.clone()),
+            // Agate has no UUID type: UUIDs become their canonical text, as in Python drivers
+            DataType::FixedSizeBinary(16)
+                if field.extension_type_name() == Some(ARROW_UUID_EXTENSION_NAME) =>
+            {
+                let text = uuids_to_text(column.as_fixed_size_binary());
+                let field = Field::new(field.name(), DataType::Utf8, field.is_nullable());
+                self.emit_flat_col(field, Some("Text"), Arc::new(text))
+            }
             // XXX: "Text" is used for binary and string types because agate doesn't have "Binary"
             DataType::Binary
             | DataType::FixedSizeBinary(_)
@@ -493,6 +504,25 @@ fn dict_encoded_with_same_indices(
 
     let new_dict_array = arrow::array::make_array(new_data);
     Ok(new_dict_array)
+}
+
+/// Format UUIDs in their canonical text form, e.g. `12151fd2-7586-11e9-8f9e-2a86e4085a59`.
+fn uuids_to_text(uuids: &FixedSizeBinaryArray) -> StringArray {
+    uuids
+        .iter()
+        .map(|uuid| {
+            uuid.map(|bytes| {
+                let mut text = String::with_capacity(36);
+                for (i, byte) in bytes.iter().enumerate() {
+                    if matches!(i, 4 | 6 | 8 | 10) {
+                        text.push('-');
+                    }
+                    let _ = write!(text, "{byte:02x}");
+                }
+                text
+            })
+        })
+        .collect()
 }
 
 /// Wrapper on an Arrow RecordBatch of flat (non-nested) columns.
