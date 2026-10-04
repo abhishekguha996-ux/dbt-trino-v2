@@ -1,5 +1,12 @@
 # Test results — 27 September 2026
 
+> **Being refreshed (October 2026).** This record is from before the rebase onto dbt-labs
+> `main` 7bbd974 and the review fixes, and it gives no commit SHAs. "2.0.7" below is the dbt v2
+> distribution version of the old base; the binary printed `dbt-oss 2.0.5`. A new record with
+> the base and head SHAs, the `dbt --version` output, the functional suite with its new tests,
+> the jaffle-shop-classic logs and the Linux x86_64 run from the fork CI will replace this
+> page.
+
 Experimental adapter; this is a test record, not a production-readiness claim.
 
 | Component | Version |
