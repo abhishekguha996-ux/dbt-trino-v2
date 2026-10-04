@@ -316,7 +316,8 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > Trino implementation; how to hand over a Trino target for your CI.
 >
 > **Known driver limits** (adbc-drivers/trino#…, #…): cancel does not stop a running query;
-> no mTLS, OAuth 2.0, impersonation, custom HTTP headers or Kerberos ticket cache.
+> go/v0.5.3 ignores `timezone`, so the session uses the server's time zone; no mTLS, OAuth
+> 2.0, impersonation, custom HTTP headers or Kerberos ticket cache.
 
 Put the real issue numbers into the last paragraph. Until the driver issues are filed, write
 "to be reported to adbc-drivers/trino" instead.

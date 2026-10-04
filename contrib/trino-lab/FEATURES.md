@@ -98,7 +98,7 @@ anything [incremental].
 | Python models | Not supported (as in v1) |
 | `catalogs.yml` catalog integrations (dbt-trino 1.10) | Not yet: clear error when `catalog_name` is set [more] |
 | Per-model `client_tags` / `http_headers` routing (dbt-trino 1.10) | Not supported yet |
-| `map`, `row`, `time with time zone` and HyperLogLog values in `run_query` | Differ from v1: Go-formatted text, and HyperLogLog fails (driver; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md)). Arrays become one column per element (dbt v2) |
+| `map`, `row`, `time with time zone` and HyperLogLog values in `run_query` | Differ from v1: Go-formatted text, and HyperLogLog fails (driver: adbc-drivers/trino#19 for `map` and `row`; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md)). Arrays become one column per element (dbt v2) |
 | Static analysis / column-level lineage | Not in the dbt v2 OSS build for any adapter |
 | Ctrl-C cancelling server queries | Known driver limitation [more, expected failure]; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md) |
 | Microbatch `concurrent_batches` | Sequential, with dbt's warning (Iceberg/Delta commit conflicts) |

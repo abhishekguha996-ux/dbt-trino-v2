@@ -6,9 +6,17 @@ not "reported".
 
 Before you file:
 
-1. Search the open and closed issues again. On 3 October 2026 only two related issues existed,
-   both closed: #84 (query ID) and #51 (`SSLVerification=NONE`).
-2. File one issue per section. Copy the text between the `~~~` lines.
+1. Search the open and closed issues again. On 4 October 2026 these issues were related:
+   - #19 "Add support for more complex data types such as ARRAY, MAP, ROW", open since
+     21 October 2025. Post the [MAP and ROW evidence](#map-and-row-values-comment-on-19) there
+     as a comment; do not file it as a new issue.
+   - #94 "ARRAY columns returned as arrow.opaque instead of Arrow List type", the ARRAY
+     sub-issue of #19, closed in June 2026.
+   - #84 (query ID) and #51 (`SSLVerification=NONE`), both closed.
+
+   No issue covers the other sections.
+2. File one issue per section, except the comment for #19. Copy the text between the `~~~`
+   lines.
 3. Afterwards, put the issue links into [UPSTREAM.md](UPSTREAM.md#umbrella-issue),
    [MIGRATION.md](MIGRATION.md) and [FEATURES.md](FEATURES.md).
 
@@ -88,6 +96,57 @@ regenerate `go/pkg/driver.go` with the current ffitemplate.
 
 We use the driver in the dbt v2 Trino adapter. On Ctrl-C, dbt stops, but the model's query
 keeps running on the cluster.
+~~~
+
+## The timezone parameter is ignored
+
+Title: `Release with trino-go-client v0.336.0 or later: the timezone parameter is ignored`
+
+~~~markdown
+**Summary**
+
+With driver go/v0.5.3, the `timezone` URI parameter has no effect: the session always uses the
+time zone of the Trino server. go/v0.5.3 pins trino-go-client v0.333.0, which has no `timezone`
+DSN parameter. trino-go-client v0.336.0 reads it and sends `X-Trino-Time-Zone`. The driver's
+`main` branch (`853e695`) already uses v0.336.0, but no release has it yet.
+
+**Environment**
+
+adbc-drivers/trino go/v0.5.3, Trino 483 (server time zone UTC), adbc-driver-manager 1.12.0
+(Python).
+
+**Steps to reproduce**
+
+```python
+import adbc_driver_manager.dbapi as dbapi
+
+uri = "trino://admin@localhost:8080/memory?SSL=false&timezone=America/New_York"
+with dbapi.connect(driver="trino", db_kwargs={"uri": uri}) as conn, conn.cursor() as cur:
+    cur.execute("select current_timezone()")
+    print(cur.fetchall())
+```
+
+**Expected**
+
+`[('America/New_York',)]`
+
+**Actual**
+
+`[('UTC',)]`, the server's time zone. The `http://` form of the URI
+(`http://admin@localhost:8080?catalog=memory&timezone=America/New_York`) gives the same result.
+
+**Request**
+
+A driver release with trino-go-client v0.336.0 or later. Note that v0.336.0 also changes the
+default: without `timezone`, it sends the time zone of the client machine (`TZ` or
+`/etc/localtime`), as the Trino Python client does.
+
+**Context**
+
+The dbt v2 Trino adapter passes the `timezone` profile field as this parameter. With
+go/v0.5.3, `dbt show --inline "select current_timezone() as tz"` and a profile with
+`timezone: America/New_York` prints `UTC`. dbt-trino v1 gets the profile's time zone (or the
+local time zone) through the Python client.
 ~~~
 
 ## Client certificate (mTLS) authentication
@@ -211,16 +270,40 @@ dbt-trino v1 supports this with `method: gssapi`, which uses the ticket cache. T
 adapter requires a keytab today.
 ~~~
 
-## Value formatting of map, row, time with time zone and sketch types
+## MAP and ROW values: comment on #19
 
-Title: `MAP, ROW and TIME WITH TIME ZONE values are Go-formatted text; HyperLogLog fails`
+Post this as a comment on <https://github.com/adbc-drivers/trino/issues/19>, not as a new
+issue.
+
+~~~markdown
+Evidence for MAP and ROW with go/v0.5.3, Trino 483 and adbc-driver-manager 1.12.0 (Python):
+both types come back as the `arrow.opaque` extension type over `string`, and the text is Go's
+`%v` formatting of the decoded value (sqlwrapper's default inserter). The text is hard to parse
+and differs from other Trino clients.
+
+| Query | Arrow type | Value |
+|---|---|---|
+| `select map(array['a'], array[1])` | `arrow.opaque[storage_type=string, type_name=MAP(VARCHAR(1), INTEGER)]` | `map[a:1]` |
+| `select cast(row(1, 'a') as row(x integer, y varchar))` | `arrow.opaque[..., type_name=ROW(X INTEGER, Y VARCHAR)]` | `[1 a]` |
+
+ARRAY is fine since #94: `select array[1, 2]` gives `list<int64>`. For MAP and ROW we would
+expect the Arrow `map` and `struct` types (the Python client returns a dict and a tuple), or at
+least JSON text (`{"a": 1}`, `[1, "a"]`).
+
+Context: we use the driver in the dbt v2 Trino adapter, where `run_query` results for these
+types differ from dbt-trino v1.
+~~~
+
+## TIME WITH TIME ZONE and HyperLogLog values
+
+Title: `TIME WITH TIME ZONE values are Go-formatted text; HyperLogLog fails`
 
 ~~~markdown
 **Summary**
 
-These types come back as the `arrow.opaque` extension type over `string`, and the text is Go's
-`%v` formatting of the decoded value (sqlwrapper's default inserter). The text is hard to
-parse and differs from other Trino clients. HyperLogLog values fail.
+TIME WITH TIME ZONE values come back as the `arrow.opaque` extension type over `string`, and
+the text is Go's `%v` formatting of the decoded value (sqlwrapper's default inserter).
+HyperLogLog values fail. MAP and ROW values have the same formatting; #19 covers them.
 
 **Steps to reproduce** (Python, adbc-driver-manager 1.12.0)
 
@@ -230,17 +313,12 @@ cur.execute(sql); print(cur.fetch_arrow_table())
 
 | Query | Arrow type | Value |
 |---|---|---|
-| `select map(array['a'], array[1])` | `arrow.opaque[storage_type=string, type_name=MAP(VARCHAR(1), INTEGER)]` | `map[a:1]` |
-| `select cast(row(1, 'a') as row(x integer, y varchar))` | `arrow.opaque[..., type_name=ROW(X INTEGER, Y VARCHAR)]` | `[1 a]` |
 | `select time '01:02:03.456 +05:00'` | `arrow.opaque[..., type_name=TIME WITH TIME ZONE]` | `0000-01-01 01:02:03.456 +0500 +0500` |
 | `select approx_set(1)` | error | `type not supported: "HyperLogLog"` |
 | `select uuid '12151fd2-...'` | `arrow.uuid` | correct |
-| `select array[1, 2]` | `list<int64>` | correct |
 
 **Expected**
 
-- MAP and ROW as Arrow `map` and `struct` types (the Python client returns a dict and a
-  tuple), or at least as JSON text (`{"a": 1}`, `[1, "a"]`).
 - TIME WITH TIME ZONE as ISO 8601 text (`01:02:03.456+05:00`) or a typed representation.
 - HyperLogLog, P4HyperLogLog, QDigest, TDigest and SetDigest as binary. trino-go-client
   v0.336.0 (already on `main`) decodes unknown types as bytes, which may fix this part.
@@ -248,7 +326,8 @@ cur.execute(sql); print(cur.fetch_arrow_table())
 
 **Context**
 
-dbt v2 Trino adapter: `run_query` results differ from dbt-trino v1 for these types.
+dbt v2 Trino adapter: `run_query` results differ from dbt-trino v1 for these types. Related:
+#19.
 ~~~
 
 ## Manifest name: trino vs adbc_driver_trino

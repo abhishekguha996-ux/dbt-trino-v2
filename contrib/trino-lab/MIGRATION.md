@@ -82,7 +82,7 @@ Its limits:
 | `starburst_url`, `starburst_client_id`, `starburst_secret_key`, `starburst_metadata_failure_strategy`, `starburst_max_column_batch_size` (dbt-trino 1.10.3+) | Accepted. The Starburst Data Discovery sync is not supported: if `starburst_url` is set, dbt stops with an error that asks you to remove the `starburst_*` keys |
 | `role` | Not a dbt-trino field. dbt stops with an error that points to `roles: {system: <role>}` or `roles: {<catalog>: <role>}` |
 | `roles`, `session_properties`, `client_tags`, `catalog` alias | Supported |
-| `timezone` | Accepted, but the ADBC Trino driver go/v0.5.3 does not send it: the session uses the Trino server's time zone. trino-go-client sends it from v0.336.0 on, which the driver's `main` branch already uses |
+| `timezone` | Accepted, but the ADBC Trino driver go/v0.5.3 does not send it: the session uses the Trino server's time zone. v1 sends `timezone`, or the time zone of the machine that runs dbt when it is unset. trino-go-client does the same from v0.336.0 on, which the driver's `main` branch already uses; a driver release with it is requested in [DRIVER-ISSUES.md](DRIVER-ISSUES.md#the-timezone-parameter-is-ignored) |
 | `prepared_statements_enabled` | Accepted; no visible effect, because v2 always renders bindings (for example seed values) as SQL literals |
 | `retries` | Accepted and ignored. dbt v2 does not show a warning for it yet. The driver itself retries HTTP 502, 503 and 504 responses with a growing delay, but it does not retry connection errors |
 | New: `query_timeout` | Client-side timeout: a number of seconds (`300`) or a duration (`300s`, `30m`, `1h30m`). Any other value stops dbt with an error |
