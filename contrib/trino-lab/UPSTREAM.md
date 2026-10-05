@@ -582,6 +582,11 @@ still match, and dictionary and map columns have no test.
   parsing (`TrinoDbConfig.password` and `jwt_token` are `Option<String>`, the same as in Exasol
   and ClickHouse) still rejects a numeric password and prints it in the error. This is a shared
   gap that this PR does not change.
+- `TrinoDbConfig.query_timeout` is `StringOrInteger`, like Exasol's. So an unquoted YAML float
+  (`query_timeout: 1.5`) fails in profile parsing with "data did not match any variant of
+  untagged enum StringOrInteger", before dbt-auth's decimal path sees it; only the string
+  `"1.5"` reaches that path. The field's doc comment says "a positive number of seconds". A
+  string-or-number profile type would accept the float.
 
 **Semantic changes in dbt-auth**, as `crates/dbt-auth/AGENTS.md` asks (this adds a backend and
 changes no existing one):
@@ -850,3 +855,4 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 - `skip` mode works on Delta Lake, and a `rename`-mode switch from a view on Delta leaves no
   relation, which differs from v1.
 - The S2 text names the unit-test comparisons that still hide a difference, and its test gaps.
+- A decimal `query_timeout` must be quoted; Part 1, MIGRATION.md and the docs-site draft say so.
