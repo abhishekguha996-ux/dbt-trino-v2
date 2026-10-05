@@ -10,10 +10,13 @@ Before the first PR, in this order:
 2. Push `trino-pr/integration` to your fork, check that the fork workflow's Linux x86_64 run
    passes, and add it to [TEST-RESULTS.md](TEST-RESULTS.md). The review fixes are done:
    TEST-RESULTS.md records the checks and the live results of the series (6f3a4a3, on
-   dbt-labs `main` 7bbd974) with commit SHAs.
+   dbt-labs `main` 7bbd974) and of its three [follow-ups](#follow-ups) with commit SHAs.
 3. File the [driver issues](DRIVER-ISSUES.md).
 4. Post the [Slack message](#slack-message) and ask which [PR shape](#pr-shape-options) the
    maintainers want.
+
+One review finding is still open: decide about the Part 4 follow-up F3 before you open the
+Part 4 PR (see [Follow-ups](#follow-ups)).
 
 ## Individual CLA
 
@@ -153,8 +156,8 @@ It is the same form that `cla-bot` links on a PR. The explanation is on
 
 ## The PR series
 
-Each part is one commit. Together they change only `crates/` and `.changes/`. `contrib/` and
-`.github/` are fork-only and never go upstream.
+Each part is one commit. Together they change only `crates/` and `.changes/`, and so do the
+three [follow-ups](#follow-ups). `contrib/` and `.github/` are fork-only and never go upstream.
 
 | Part | Record branch | Commit | Commit subject | Needs first |
 |---|---|---|---|---|
@@ -173,9 +176,10 @@ Each part is one commit. Together they change only `crates/` and `.changes/`. `c
 above it in the table: `trino-pr/p1-profile-auth`, for example, holds Part 0, S1, S2 and
 Part 1. `trino-pr/series` holds all nine parts and equals `trino-pr/p5-init-wizard` (6f3a4a3).
 `trino-pr/integration` is `trino-pr/series` plus the fork-only `contrib/` and `.github/`
-commits. These branches record the reviewed commits. Never open a PR from them: Copybara
-mirrors the whole diff against `main`, so a PR from `trino-pr/p1-profile-auth` would also carry
-Part 0, S1 and S2. At PR time, cut a new branch for each PR from the latest `main` (see
+commits and the three follow-ups. These branches record the reviewed commits. Never open a PR
+from them: Copybara mirrors the whole diff against `main`, so a PR from
+`trino-pr/p1-profile-auth` would also carry Part 0, S1 and S2. At PR time, cut a new branch for
+each PR from the latest `main` (see
 [How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)).
 
 Each part was also checked alone: on 7bbd974, with only the parts in its "Needs first" column
@@ -198,6 +202,62 @@ and Part 5 fills the profile fields that Part 1 adds. Part 3b builds on Part 3a'
 open a PR, apply the part alone, with the parts it needs, to the latest `main` and run the
 gates there (see [How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)). A useful
 adapter needs all parts; Part 0 is defense in depth for Part 1's JWT.
+
+### Follow-ups
+
+Three bugs that the reviews found were fixed after the record branches were made. Each fix is
+a follow-up commit on `trino-pr/followups`, which is `trino-pr/series` plus these three
+commits. `trino-pr/integration` holds the same three patches after its fork-only commits.
+
+| Follow-up | Commit | On `trino-pr/integration` | Commit subject | Part | Needs first |
+|---|---|---|---|---|---|
+| F1 | `a5767d1` | `99233a2` | `fix(dbt-tasks-sa): keep the decimal sign and show NULL in unit-test value comparisons` | S2 | S2 |
+| F2 | `25a4eca` | `56e7e77` | `fix(trino): accept a decimal number of seconds for query_timeout` | 1 | 1 |
+| F3 | `135bdd0` | `e7a1675` | `fix(trino): stop before any ALTER when an ARRAY or MAP element ROW changes field order` | 4 | 1, 2, 4 |
+
+- **F1** (S2): a unit test passed when a `Decimal128` value between -1 and 0 differed only in
+  its sign (-0.50 and 0.50 both showed as `0.50`), or when a map value was NULL on one side and
+  an empty string on the other.
+- **F2** (Part 1): an unquoted decimal, such as `query_timeout: 1.5`, failed when dbt parsed
+  `profiles.yml`. Only a quoted `"1.5"` worked.
+- **F3** (Part 4): with `sync_all_columns`, a reorder in the `ROW` elements of an `ARRAY` or
+  `MAP` field ran the nested `DROP COLUMN` statements and the type change of that field before
+  the order check. A connector that refused the type change failed the run with its own error,
+  after the drops, and the `--full-refresh` message never showed. F3 stops the run before any
+  `ALTER`.
+
+A follow-up is not a PR of its own. Fold it into the single commit of its part when you cut
+that part's PR branch (see [How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)).
+The record branches of the parts keep the reviewed commits. The follow-ups have plain `fix(…)`
+subjects, not `fixup!`, so `git rebase --autosquash` does not pair them with their parts.
+
+Each follow-up was checked alone on 7bbd974, with the parts in its "Needs first" column
+before it: it applies cleanly and passes `cargo fmt`, `cargo check --all-targets`, clippy and
+the tests of its crates (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)). The live run of
+`trino-pr/integration` e7a1675 checks each fix against the binary of 892256e. F1's NULL text
+has a Rust test only, because no Trino value reaches that code.
+
+**Open review finding: F3 (major).** F3 also stops a reorder that the Iceberg connector can
+apply. Without F3, Part 4 runs `ALTER COLUMN … SET DATA TYPE` for such an `ARRAY` or `MAP`
+field, as dbt-trino v1 does, and Iceberg keeps each value in its field: the run succeeds with
+correct data (checked live). With F3, the same run stops and asks for `--full-refresh`, so the
+incremental table must be rebuilt. On Delta Lake and Hive, the connector refuses that
+statement (`NOT_SUPPORTED`), so there F3 only replaces the connector's error with the clear
+message. On Iceberg, F3 also prevents a partial change: when the reordered element `ROW` also
+changes a field type that Iceberg cannot change, Part 4 drops the removed fields and then fails
+with `ICEBERG_COMMIT_ERROR`, without the `--full-refresh` message. Do not fold F3 yet. Before
+the Part 4 PR, choose one:
+
+- Change F3 so that Iceberg can still apply such a reorder in place, and have it reviewed
+  again.
+- Fold F3 as it is. The Part 4 text under [PR descriptions](#pr-descriptions) already states
+  the difference from v1 on Iceberg.
+- Leave F3 out. The Part 4 text then needs back the two limits that F3 removed: with
+  `sync_all_columns`, a reorder inside an `ARRAY` or `MAP` field runs the type change of that
+  field (after any nested `DROP COLUMN`) before the order check, so a connector that cannot
+  make the change fails with its own error, not with the `--full-refresh` message
+  (`append_new_columns` reaches the message); and the `ARRAY` and `MAP` case has Rust unit
+  tests only. Leave out the Iceberg limit and the F3 test and evidence too.
 
 ## PR shape options
 
@@ -243,11 +303,13 @@ Your plan (clone, make a branch, port the code, open a PR) is right, with these 
 - You cannot push to dbt-labs/dbt. A PR comes from a branch in your fork,
   `abhishekguha996-ux/dbt-trino-v2`, which is already a GitHub fork of dbt-labs/dbt. The clone
   in `~/dbttrinoadapter/upstream/dbt` has `origin` = your fork and `upstream` = dbt-labs/dbt,
-  and it holds the commits of [the PR series](#the-pr-series), which are not pushed yet. Run
-  the commands below in that clone, or in a worktree of it, with a clean working tree.
+  and it holds the commits of [the PR series](#the-pr-series) and its follow-ups, which are not
+  pushed yet. Run the commands below in that clone, or in a worktree of it, with a clean
+  working tree.
 - Cut one new branch for each PR from the latest dbt-labs `main`. Cherry-pick into it the
-  parts in its "Needs first" column that are not on `main` yet, then the part itself. Never use
-  a `trino-pr/*` record branch as a PR branch: they are stacked.
+  parts in its "Needs first" column that are not on `main` yet, then the part itself, with its
+  [follow-up](#follow-ups) folded into the same commit. Never use a `trino-pr/*` record branch
+  as a PR branch: they are stacked.
 - Run the same gates as dbt Labs' CI (`.github/workflows/ci.yml`) before you push.
 
 For example, Part 2 while Part 1 is still open:
@@ -255,7 +317,7 @@ For example, Part 2 while Part 1 is still open:
 ```sh
 git fetch upstream
 git switch -c pr/p2 upstream/main
-git cherry-pick ab2948f           # Needs first: Part 1, only while it is not on main
+git cherry-pick pr/p1             # Needs first: Part 1 with F2, only while it is not on main
 git cherry-pick 8943170           # Part 2
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -265,23 +327,48 @@ gh pr create -R dbt-labs/dbt --base main --head abhishekguha996-ux:pr/p2 \
   --title "feat(trino): relations, columns, SQL types and literals" --body-file pr-part2.md
 ```
 
+`git cherry-pick pr/p1` picks the last commit of the Part 1 PR branch: Part 1 with F2 folded
+in, the same commit that the Part 1 PR shows. So cut the PR branches in the order of the merge
+plan.
+
+A part with a follow-up goes into its PR as one commit. For example, S2 with F1:
+
+```sh
+git fetch upstream
+git switch -c pr/s2 upstream/main
+git cherry-pick -n 5733d42 a5767d1   # S2 and F1, applied and staged, not committed
+git rm -qf .changes/unreleased/Fixes-20261004-224109.yaml       # F1's entry
+"${EDITOR:-vi}" .changes/unreleased/Fixes-20261004-173311.yaml  # S2's issue and body, below
+git add .changes/unreleased/Fixes-20261004-173311.yaml
+git commit -c 5733d42                # S2's message and author, in the editor; see below
+```
+
+`git rm` needs `-f`, because the entry is staged but not committed. `git commit -c` keeps the
+author and the date of the part and opens its message in the editor. A plain
+`git cherry-pick 5733d42 a5767d1` followed by `git reset --soft HEAD~2` gives the same staged
+changes. Then run the gates as above.
+
 The cherry-picks for each PR:
 
-| PR | Branch | First, only the parts not on `main` yet | Then |
-|---|---|---|---|
-| Part 0 | `pr/p0` | — | `1901220` |
-| S1 | `pr/s1` | — | `5ee10b4` |
-| S2 | `pr/s2` | — | `5733d42` |
-| Part 1 | `pr/p1` | — | `ab2948f` |
-| Part 2 | `pr/p2` | `ab2948f` (Part 1) | `8943170` |
-| Part 3a | `pr/p3a` | — | `7de6091` |
-| Part 3b | `pr/p3b` | `ab2948f 7de6091` (Parts 1 and 3a) | `10a13da` |
-| Part 4 | `pr/p4` | `ab2948f 8943170` (Parts 1 and 2) | `8f0bf3b` |
-| Part 5 | `pr/p5` | `ab2948f` (Part 1) | `6f3a4a3` |
+| PR | Branch | First, only the parts not on `main` yet | Then, as one commit | Changie entries |
+|---|---|---|---|---|
+| Part 0 | `pr/p0` | — | `1901220` | — |
+| S1 | `pr/s1` | — | `5ee10b4` | set the issue and the body (below) |
+| S2 | `pr/s2` | — | `5733d42` with F1 `a5767d1` | remove F1's `Fixes-20261004-224109.yaml`; set S2's issue and body (below) |
+| Part 1 | `pr/p1` | — | `ab2948f` with F2 `25a4eca` | remove F2's `Fixes-20261004-224603.yaml` |
+| Part 2 | `pr/p2` | `pr/p1` (Part 1) | `8943170` | — |
+| Part 3a | `pr/p3a` | — | `7de6091` | — |
+| Part 3b | `pr/p3b` | `pr/p1 pr/p3a` (Parts 1 and 3a) | `10a13da` | — |
+| Part 4 | `pr/p4` | `pr/p1 pr/p2` (Parts 1 and 2) | `8f0bf3b`, with F3 `135bdd0` only if you fold it (see [Follow-ups](#follow-ups)) | with F3, remove its `Fixes-20261004-225131.yaml` |
+| Part 5 | `pr/p5` | `pr/p1` (Part 1) | `6f3a4a3` | — |
 
-Each of these sets applies cleanly to 7bbd974 (checked on 4 October with `git merge-tree`),
-and each passed fmt, `cargo check --all-targets` and the tests of its crates there (see
-[TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)).
+Checked on 5 October in a scratch clone, with 7bbd974 as `upstream/main`: each of these sets
+applies cleanly. In merge-plan order, the nine PR commits give the code of
+`trino-pr/followups~1` (the series with F1 and F2), and with F3 folded the code of
+`trino-pr/followups`; only the changie entries differ. The gates ran on each part alone, and on
+each follow-up with the parts it needs (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)),
+but not on Parts 2, 3b, 4 and 5 with F2 in their Part 1. Run them on each `pr/` branch before
+the push.
 
 - **A part that has landed** reaches `main` as a new Copybara commit by `fa-assistant`, so its
   SHA differs from the Commit column, and `git branch --contains` does not find it. Judge
@@ -292,17 +379,34 @@ and each passed fmt, `cargo check --all-targets` and the tests of its crates the
 - **A conflict** after `main` has moved: resolve it on the `pr/` branch and run the gates
   again. Leave the `trino-pr/*` record branches as they are.
 - **The S1 and S2 changie entries** name issue 13131, the Trino release issue, although they
-  fix code that every adapter uses. On `pr/s1` and `pr/s2`, before the push, set `issue` to the
-  bug issue of the fix (or to `""`, as upstream entries without an issue do) and shorten the
-  body, then run `git commit --amend --no-edit <entry file>`:
+  fix code that every adapter uses. Before the push, set `issue` to the bug issue of the fix (or
+  to `""`, as upstream entries without an issue do) and shorten the body. On `pr/s2`, do it
+  before `git commit -c` (see the S2 example). On `pr/s1`, run
+  `git commit --amend --no-edit <entry file>` afterwards.
   - S1, `.changes/unreleased/Fixes-20261004-173301.yaml`: "Show arrow.uuid columns as UUID
     text in run_query, enforced contracts and unit tests instead of panicking, and return an
     error instead of a panic when Agate cannot convert a result column"
-  - S2, `.changes/unreleased/Fixes-20261004-173311.yaml`: "Fix unit tests passing despite
-    mismatched values in columns such as small integers, Decimal32/64, millisecond and
-    microsecond timestamps, time, binary and map columns, and NULL against a value"
-- **Two commit messages to complete** on their PR branches with `git commit --amend` (the
-  record commits keep the reviewed text):
+  - S2, `.changes/unreleased/Fixes-20261004-173311.yaml`, which also covers F1: "Fix unit
+    tests passing despite mismatched values in columns such as small integers, Decimal32/64,
+    millisecond and microsecond timestamps, time, binary and map columns, NULL against a value
+    (also inside a map value), and the sign of a decimal between -1 and 0"
+- **A folded follow-up keeps no changie entry of its own.** F1's facts go into S2's body above.
+  Parts 1 and 4 add Trino features that no release has yet, so their "Features" entries cover
+  F2 and F3, and the F2 and F3 entries are removed.
+- **Commit messages to complete** on their PR branches (the record commits keep the reviewed
+  text). For a part with a follow-up, edit the message in the editor of `git commit -c`; for
+  the others, use `git commit --amend`:
+  - S2 with F1: in S2's second paragraph, write "and a NULL, also one inside a value such as a
+    map value, shows as NULL". Then add F1's two bullets (the `Decimal128` sign and the leading
+    zeros of the fraction; the NULL text of the fallback), its "Unchanged" line and its
+    "Tests" paragraph, after a line such as "Two more cases showed different values as the
+    same text:". Leave out "Follow-up to …".
+  - Part 1 with F2: in the first bullet, write that `query_timeout` "takes a positive number of
+    seconds, such as 300 or 1.5 (quoted or not), or a Go duration such as 30m". Add F2's second
+    paragraph ("The field now keeps the YAML value as written, …") as a bullet after it. Under
+    "Accepted input shapes", write "query_timeout takes an integer, a decimal or a string", and
+    add F2's "Tests" sentence to the tests paragraph. Leave out F2's own "Semantic changes"
+    paragraph: Part 1's paragraph, with this change, covers it.
   - Part 2 names only S1 as a run-time need. Add after its uuid paragraph: "Unit tests detect
     mismatches in decimal(p<=18), timestamp(1-6) [with time zone], tinyint, smallint, time and
     varbinary columns only with "fix(dbt-tasks-sa): compare unit-test values of Arrow types
@@ -312,30 +416,37 @@ and each passed fmt, `cargo check --all-targets` and the tests of its crates the
     header comment removed) have unmarked edits and that `macros/relations.sql` is new. The
     dbt-trino line of `crates/dbt-loader/src/dbt_macro_assets/README.md` says "dbt v2 changes
     are marked `v2:` in each file"; correct it in the same amend. In the first "Bugs fixed"
-    bullet, say that a reorder in the `ROW` elements of `ARRAY` and `MAP` fields reaches the
-    `--full-refresh` stop only with `append_new_columns` (see the Part 4 text).
+    bullet, say that for the `ROW` elements of `ARRAY` and `MAP` fields, v1 writes the values
+    to the wrong fields only with `append_new_columns`: with `sync_all_columns`, v1 changes the
+    type of the field, which Iceberg applies and Delta Lake and Hive refuse. With F3 folded,
+    add F3's second paragraph (the stop before any `ALTER`) to the `on_schema_change` item of
+    "v2 adaptations", and its "Test" sentence. Without F3, say that this reorder reaches the
+    `--full-refresh` stop only with `append_new_columns`.
 
 **One PR (Option B):** Parts 0 to 5 on one branch, without S1 and S2, which are separate PRs
-in both options:
+in both options. Part 1 gets F2 as above:
 
 ```sh
 git fetch upstream
 git switch -c pr/series upstream/main
-git cherry-pick 1901220 ab2948f 8943170 7de6091 10a13da 8f0bf3b 6f3a4a3   # Parts 0 to 5
+git cherry-pick 1901220                                   # Part 0
+git cherry-pick -n ab2948f 25a4eca                        # Part 1 with F2, as one commit
+git rm -qf .changes/unreleased/Fixes-20261004-224603.yaml
+git commit -c ab2948f                                     # edit the message as above
+git cherry-pick 8943170 7de6091 10a13da 8f0bf3b 6f3a4a3   # Parts 2 to 5
 # then the gates, git push origin pr/series, and gh pr create with
 # --head abhishekguha996-ux:pr/series
 ```
 
-These seven picks also apply cleanly to 7bbd974, but the gates have not run on this
-combination yet. Do not push `trino-pr/series` itself as the PR branch, because it also holds
-S1 and S2. After S1 and S2 have landed, `git switch -c pr/series trino-pr/series` followed by
-`git rebase upstream/main` gives the same branch, because the rebase skips commits whose
-changes are already on `main`. If Copybara changed S1 or S2 on the way, use the cherry-picks.
+If you fold F3, pick Part 4 in the same way as Part 1: `8f0bf3b` with `135bdd0`, without the
+entry `Fixes-20261004-225131.yaml`, and then `6f3a4a3`. Both variants apply cleanly to 7bbd974
+(checked on 5 October), but the gates have not run on them yet. Do not push `trino-pr/series`
+itself as the PR branch: it also holds S1 and S2, and it has no follow-ups.
 
-**Live Linux evidence:** push `trino-pr/integration` (the series plus the fork-only
-`contrib/` and `.github/` commits) to the fork. The fork workflow then runs the Rust checks,
-builds the Linux and macOS archives, and runs the functional suite and the jaffle-shop build
-with the Linux binary. Only `trino-pr/integration` has the fork workflow, so a push of a
+**Live Linux evidence:** push `trino-pr/integration` (the series, the fork-only `contrib/` and
+`.github/` commits, and the three follow-ups) to the fork. The fork workflow then runs the Rust
+checks, builds the Linux and macOS archives, and runs the functional suite and the jaffle-shop
+build with the Linux binary. Only `trino-pr/integration` has the fork workflow, so a push of a
 `trino-pr/*` record branch or a `pr/` branch starts no fork run (dbt Labs' own workflows run on
 a push only to `main`).
 
@@ -439,7 +550,9 @@ changie new --kind "<kind>" --body "<text>" --custom issue=13131 \
 
 Do not pass `--custom project=dbt-core`: changie rejects it, because `.changie.yaml` adds
 `project: dbt-core` itself (the example in `AGENTS.md` still passes it). The S1 and S2 entries
-name issue 13131: change their `issue` and body on their PR branches (see
+name issue 13131: change their `issue` and body on their PR branches. The follow-ups F1 to F3
+have "Fixes" entries of their own on `trino-pr/followups`. When you fold a follow-up into its
+part, the part keeps one entry (see
 [How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)).
 
 ### Part 0 — `fix(adbc): redact accessToken URI parameters in Builder Debug output`
