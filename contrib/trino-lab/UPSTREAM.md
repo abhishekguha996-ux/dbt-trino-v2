@@ -604,11 +604,14 @@ error instead of a panic.
 and `Date32` have a formatting arm. Every other Arrow type prints `[unsupported]` on both
 sides, so the test never sees a difference in such a column, not even NULL against a value. I
 found this with adbc-drivers/trino, which returns `decimal(10, 2)` as `Decimal64` and
-`timestamp(3)` in milliseconds.
+`timestamp(3)` in milliseconds. The `Decimal128` arm also takes the sign from the integer part,
+which is 0 for a value between -1 and 0, so -0.50 and 0.50 both show as `0.50`.
 
-**Solution:** Every Arrow type without an arm compares by its Arrow display text
-(`array_value_to_string`). A binary column compares as text when all its values are valid
-UTF-8, and as hex otherwise.
+**Solution:** Every Arrow type without an arm compares by its Arrow display text, with the
+text `NULL` for a NULL at any depth, so a NULL inside a map value does not match an empty
+string. A binary column compares as text when all its values are valid UTF-8, and as hex
+otherwise. The `Decimal128` arm takes the sign from the raw value, and it keeps the leading
+zeros of the fraction (`0.05`, not `0.5`).
 
 **Behavior change for all adapters:** unit tests now compare these columns, for example:
 - microsecond timestamps: `TIMESTAMP` and `DATETIME` on BigQuery, Databricks, Postgres,
@@ -617,31 +620,31 @@ UTF-8, and as hex otherwise.
 - `Int8`, `Int16` and unsigned integers; `Decimal32`, `Decimal64` and `Decimal256` (BigQuery
   `BIGNUMERIC`)
 - dictionary, map and binary columns
-- NULL against a value, in all of these columns
+- NULL against a value, in all of these columns, also inside a map value
+- the sign of `Decimal128` values between -1 and 0, for example BigQuery `NUMERIC` and Trino
+  `decimal(p)` with p > 18
 
-A unit test that passed only because both sides showed `[unsupported]` can now fail. The
-changie entry says so.
+A unit test that passed only because both sides showed `[unsupported]`, or the same text for
+two different decimals, can now fail. The changie entry says so.
 
-**Known limits:** this change touches only the fallback. Some arms that `main` already has
-still hide a difference, and the fallback has one gap of its own:
+**Known limits:** two arms that `main` already has still hide a difference:
 - `Timestamp` in nanoseconds compares only to the whole second. adbc-drivers/trino returns
   Trino `timestamp(7)` to `timestamp(12)` this way: on `timestamp(9)`, a 1 ns and a 1 ms
   difference pass, and a 1 s difference fails (checked live).
-- `Decimal128` loses the sign between -1 and 0: -0.50 and 0.50 both show `0.50` (checked live
-  on a Trino `decimal(20, 2)` column). This affects, for example, BigQuery `NUMERIC` and Trino
-  `decimal(p)` with p > 18.
 - `Float32` and `Float64` compare with one decimal place: 1.23 and 1.24 both show `1.2`
   (checked live on a Trino `double` column).
-- The fallback formats a NULL inside a map value as an empty string (the default
-  `FormatOptions`), so `{a: NULL}` and `{a: ''}` compare equal.
 
-A follow-up can send these types through the Arrow display with a `NULL` text, so that every
-unit and sign compares exactly.
+This PR leaves them as they are: how exactly floats and nanosecond timestamps compare in unit
+tests is for dbt Labs to decide.
 
-**Tests:** cross-adapter cases for `Int16`, `Decimal64`, millisecond timestamps,
-`Timestamp(µs, UTC)`, `Time64`, NULL against a value, and `BinaryView` values as text and as
-hex. They check that a mismatch is found; no test yet checks that equal values of these types
-still match, and dictionary and map columns have no test.
+**Tests:** cross-adapter cases. A mismatch is found in `Int16`, `Decimal64`, millisecond
+timestamps, `Timestamp(µs, UTC)`, `Time64`, `BinaryView` (as text and as hex), dictionary and
+map columns; for NULL against a value; for the sign of `Decimal128` and `Decimal256` values
+between -1 and 0; and for NULL against an empty string in a map value. Equal expected and
+actual rows, NULL included, still match in `Int16`, `Decimal64`, `Decimal128`,
+`Timestamp(µs, UTC)`, `Time64`, `BinaryView` (valid UTF-8 and not),
+`Dictionary(Int64, Utf8View)` and `Map` columns. Checked live on a Trino `decimal(20, 2)`
+column: -0.50 against 0.50 fails with the diff `0.50 -> -0.50`.
 
 ### Part 1 — `feat(trino): profile schema and ADBC authentication`
 
@@ -661,8 +664,9 @@ still match, and dictionary and map columns have no test.
   - `cert`: a CA bundle, `true`, or `false` (`SSLVerification=NONE`, which the ADBC driver
     reads itself)
   - `X-Trino-Source: dbt-trino-<version>`, so resource-group selectors keep matching
-- `query_timeout` is not a v1 field. It takes a positive number of seconds (an integer, or a
-  decimal string such as `"1.5"`) or a Go duration such as `30m`. Zero fails with its own
+- `query_timeout` is not a v1 field. It takes a positive number of seconds, such as `300` or
+  `1.5` (quoted or not), or a Go duration such as `30m`. `TrinoDbConfig` keeps the YAML value
+  as written, as it does for `cert`, and dbt-auth validates it. Zero fails with its own
   message, because trino-go-client would cancel every query at once. Without the key, the
   driver stops a query after 10h (`trino.DefaultQueryTimeout`).
 - Clear configuration errors for: a `host` with a scheme, port or path; an invalid
@@ -695,11 +699,6 @@ still match, and dictionary and map columns have no test.
   parsing (`TrinoDbConfig.password` and `jwt_token` are `Option<String>`, the same as in Exasol
   and ClickHouse) still rejects a numeric password and prints it in the error. This is a shared
   gap that this PR does not change.
-- `TrinoDbConfig.query_timeout` is `StringOrInteger`, like Exasol's. So an unquoted YAML float
-  (`query_timeout: 1.5`) fails in profile parsing with "data did not match any variant of
-  untagged enum StringOrInteger", before dbt-auth's decimal path sees it; only the string
-  `"1.5"` reaches that path. The field's doc comment says "a positive number of seconds". A
-  string-or-number profile type would accept the float.
 
 **Semantic changes in dbt-auth**, as `crates/dbt-auth/AGENTS.md` asks (this adds a backend and
 changes no existing one):
@@ -709,7 +708,8 @@ changes no existing one):
 - Accessors: `password` and `jwt_token` use `get_string`, as the Exasol and ClickHouse backends
   read secrets, and so do `port` and `query_timeout`; the other text fields use `get_str`.
 - Accepted input shapes: an empty string or mapping counts as unset for `impersonation_user`,
-  `http_headers`, `role` and `starburst_url`; `query_timeout` takes an integer or a string.
+  `http_headers`, `role` and `starburst_url`; `query_timeout` takes an integer, a decimal or a
+  string (`get_string` turns a YAML number into its text).
 - Enum structure: `TrinoAuthIR { None, Ldap, Jwt, Kerberos }` is new.
 - Normalization: a `query_timeout` in seconds gets an `s` suffix; `roles` and
   `session_properties` become sorted `key:value;key:value` strings and `client_tags` a
@@ -718,10 +718,13 @@ changes no existing one):
 Human verification is required before committing this change.
 
 **Tests:** unit tests for every method, each with its full URI; the options; host, port and
-`query_timeout` validation, with zero and decimal seconds; the unsupported options, with empty
-values; Kerberos options and `krb5_config` precedence; secret handling and warnings; a
-`profiles.rs` parse test. Live-tested over HTTPS with a password (also one with URL-special
-characters), a JWT, a CA bundle and `cert: false`.
+`query_timeout` validation, with zero, decimal seconds (also unquoted YAML floats), a negative
+number, a boolean and a list; the unsupported options, with empty values; Kerberos options and
+`krb5_config` precedence; secret handling and warnings; a `profiles.rs` test that parses a v1
+profile as `load_profiles` does, with `query_timeout` 300, 1.5, '1.5' and 30m. Live-tested over
+HTTPS with a password (also one with URL-special characters), a JWT, a CA bundle and
+`cert: false`, and with an unquoted `query_timeout: 1.5`, which cancels a slow query on the
+server after 1.5 s.
 
 ### Part 2 — `feat(trino): relations, columns, SQL types and literals`
 
@@ -844,7 +847,9 @@ v2 relation framework) is entirely my own work.
   - grants: the show-grants SQL lowercases names and reads only user grantees
     (`grantee_type = 'USER'`), because dbt grants only to users. It leaves out the current
     user, so dbt never revokes its own privileges
-  - `on_schema_change` keeps drop-before-add; a comment explains the Hive metastore trade-off
+  - `on_schema_change` keeps drop-before-add (a comment explains the Hive metastore
+    trade-off), and with `sync_all_columns` it stops before any `ALTER` when `ROW` fields are
+    already out of the model's order
 - **Config keys**, with dbt-trino's names (Exasol precedent): `properties` for models, seeds and
   snapshots; `on_table_exists`, `view_security`, `views_enabled`, `sync_nested_columns` and
   `grace_period` for models only. They are in `log_state_mod_diff` too.
@@ -861,18 +866,21 @@ v2 relation framework) is entirely my own work.
   one field. Trino matches `ROW` fields by position, so if the fields of a `ROW` column, of a
   `ROW` nested in it, or of the `ROW` elements of its `ARRAY` and `MAP` fields would be in
   another order than in the model, dbt stops with an error that asks for `--full-refresh` (v1
-  swaps the values silently). The error comes after the `ALTER` statements, so the new field is
-  already in the table, and later runs fail too until a `--full-refresh`. Known limits:
+  swaps the values silently; for the `ROW` elements of `ARRAY` and `MAP` fields, only with
+  `append_new_columns`). With `sync_all_columns`, fields that are already in another order
+  stop the run before any `ALTER`, so the table stays as it is. A new field that `ADD COLUMN`
+  puts at the end of a `ROW`, not in the middle as in the model, is found after the `ALTER`
+  statements: the field is then already in the table, and later runs fail too until a
+  `--full-refresh`. With `append_new_columns`, the check runs after the `ADD COLUMN`
+  statements. Known limits:
   - A top-level `ARRAY(ROW)` or `MAP(ROW)` column is not diffed field by field. It goes through
     dbt's flat `on_schema_change`, as in v1, so a reordered element `ROW` there is not detected.
   - Inside `ARRAY` and `MAP` fields, only the order of the fields that both element `ROW`s have
     is checked. A field added there is not added on its own: the whole field counts as a type
     change, which only `sync_all_columns` applies.
-  - With `sync_all_columns`, the type changes (`ALTER COLUMN … SET DATA TYPE`, after any nested
-    `DROP COLUMN`) run before the order check. So a reorder inside an `ARRAY` or `MAP` field
-    fails with the connector's own error if it cannot change that type, not with the
-    `--full-refresh` message; `append_new_columns` reaches the message.
-  - The `ARRAY` and `MAP` case has Rust unit tests only, no loader or live test.
+  - On Iceberg, a reorder in the `ROW` elements of an `ARRAY` or `MAP` field stops the run,
+    although Iceberg can apply it with `ALTER COLUMN … SET DATA TYPE` and keep the data, as v1
+    does with `sync_all_columns`. The table then needs a `--full-refresh`.
 - **Shared code:** `CatalogRelation::from_model_config_and_catalogs`
   (`dbt-adapter/src/catalog_relation.rs`) has a Trino arm that fails when a model sets
   `catalog_name`, with the same message as `properties()`. It is needed because
@@ -902,9 +910,11 @@ a switch works on Delta.
 
 **Tests:** loader tests for the `v2:` changes, including the `sync_column_schemas` override, a
 mixed-case database in the catalog and `check_schema_exists` SQL, and the user-only grants
-query. The two `v2:` edits in `seeds/helpers.sql` remove a v1 comment and an unused `set`, and
-change no behavior. Struct-diff tests in `dbt-adapter-sql`, and unit tests for the shared guard
-(with and without `catalog_name`) and for the Trino seed types in `convert_type`.
+query, and that an `ARRAY(ROW)` reorder with a removed field stops a `sync_all_columns` run
+before any `ALTER`. The two `v2:` edits in `seeds/helpers.sql` remove a v1 comment and an
+unused `set`, and change no behavior. Struct-diff tests in `dbt-adapter-sql`, and unit tests
+for the shared guard (with and without `catalog_name`) and for the Trino seed types in
+`convert_type`.
 
 **Evidence:**
 - jaffle-shop-classic (+incremental, +snapshot) builds clean on Iceberg, Delta Lake and Hive on S3.
@@ -914,6 +924,8 @@ change no behavior. Struct-diff tests in `dbt-adapter-sql`, and unit tests for t
 - The functional suite (98 tests) passes on Memory, Hive, Iceberg and Delta Lake, except the
   Ctrl-C test, an expected failure from the driver's cancel limit (see TEST-RESULTS.md).
 - The retail and TPC-H projects match Python oracles.
+- With `sync_all_columns`, `ARRAY(ROW)` and `MAP(ROW)` reorders inside a `ROW` column stop
+  before any `ALTER` on Iceberg, Delta Lake and Hive, and the table is unchanged (checked live).
 
 ### Part 5 — `feat(trino): dbt init profile wizard`
 
