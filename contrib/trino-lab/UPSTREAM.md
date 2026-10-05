@@ -448,14 +448,23 @@ git cherry-pick 1901220                                   # Part 0
 git cherry-pick -n ab2948f 25a4eca                        # Part 1 with F2, as one commit
 git rm -qf .changes/unreleased/Fixes-20261004-224603.yaml
 git commit -c ab2948f                                     # edit the message as above
-git cherry-pick 8943170 7de6091 10a13da 8f0bf3b 6f3a4a3   # Parts 2 to 5
+git cherry-pick 8943170                                   # Part 2
+git commit --amend                                        # complete its message as above
+git cherry-pick 7de6091 10a13da                           # Parts 3a and 3b
+git cherry-pick 8f0bf3b                                   # Part 4, without F3
+"${EDITOR:-vi}" crates/dbt-loader/src/dbt_macro_assets/README.md   # the dbt-trino line
+git add crates/dbt-loader/src/dbt_macro_assets/README.md
+git commit --amend                                        # complete its message as above
+git cherry-pick 6f3a4a3                                   # Part 5
 # then the gates, git push origin pr/series, and gh pr create with
 # --head abhishekguha996-ux:pr/series
 ```
 
-Part 4 is `8f0bf3b` as it is, because F3 is left out. This set applies cleanly to 7bbd974
-(checked on 5 October), but the gates have not run on it yet. Do not push `trino-pr/series`
-itself as the PR branch: it also holds S1 and S2, and it has no follow-ups.
+Part 2 and Part 4 are not the last commit of this branch, so complete their messages right
+after their cherry-picks. Part 4 is `8f0bf3b` as it is, because F3 is left out. This set
+applies cleanly to 7bbd974 (checked on 5 October), but the gates have not run on it yet. Do not
+push `trino-pr/series` itself as the PR branch: it also holds S1 and S2, and it has no
+follow-ups.
 
 **Live Linux evidence:** push `trino-pr/integration` (the series, the fork-only `contrib/` and
 `.github/` commits, and the follow-ups F1 and F2; F3 is reverted there) to the fork. The fork
