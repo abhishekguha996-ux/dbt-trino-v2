@@ -1043,7 +1043,8 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 - The Part 4 text has back the `sync_all_columns` limit for the `ROW` elements of `ARRAY` and
   `MAP` fields, now with the result on each connector, and its evidence gives the live checks
   of 8809833. "Commit messages to complete" gives the text that replaces the first "Bugs
-  fixed" bullet of the Part 4 message.
+  fixed" bullet of the Part 4 message. The Option B recipe completes the Part 2 and Part 4
+  messages right after their cherry-picks, because neither is the last commit there.
 - TEST-RESULTS.md records the live run of 8809833, with nested ROW order checks; the e7a1675
   and 892256e runs are short earlier records.
 - FEATURES.md, MIGRATION.md and the docs-site draft give the nested ROW behavior without F3.
