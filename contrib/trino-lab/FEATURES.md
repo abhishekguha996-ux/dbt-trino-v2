@@ -18,7 +18,7 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | `method: kerberos` (keytab) | Unit-tested; not tested against a KDC |
 | `method: certificate`, `oauth`, `oauth_console`, `gssapi` | Not supported by the ADBC driver: clear error (unit-tested) |
 | `cert: false` / TLS verification on by default | Tested [auth]; default differs from v1 (see MIGRATION.md) |
-| `host` must be a host name; `query_timeout` as seconds or a duration (a decimal must be quoted); `starburst_*` keys; `role` | Tested [auth] |
+| `host` must be a host name; `query_timeout` as seconds (an integer or a decimal, quoted or not) or a duration; `starburst_*` keys; `role` | Tested [auth]; a decimal `query_timeout` is unit-tested and was checked live ([TEST-RESULTS.md](TEST-RESULTS.md#redgreen-checks-of-the-follow-ups)) |
 | `session_properties` | Tested [features, more] |
 | `roles` | Unit-tested; every lab profile sets `roles: {hive: admin}`, but no test checks the role |
 | `client_tags` | Unit-tested; sent in [auth], but no test checks the tags |
@@ -80,11 +80,14 @@ table gets the same location, which Iceberg refuses (the same in dbt-trino v1).
 ⁴ Delta needs `column_mapping_mode = 'name'` to drop or rename columns.
 
 ⁵ The order check covers a ROW column, the ROWs nested in it, and the ROW elements of its ARRAY
-and MAP fields (the last ones in unit tests only). With `sync_all_columns`, a reorder inside an
-ARRAY or MAP field is first applied as a type change of that field, so a connector that cannot
-make the change fails with its own error, not with the `--full-refresh` message. A top-level
-`ARRAY(ROW)` or `MAP(ROW)` column is not diffed field by field, as in v1, so a reordered element
-ROW there is not detected.
+and MAP fields (the last ones in a loader test and in live checks, see
+[TEST-RESULTS.md](TEST-RESULTS.md#redgreen-checks-of-the-follow-ups)). With `sync_all_columns`,
+fields that are already in another order than in the model stop the run before any `ALTER`,
+and the table stays as it is. On Iceberg, this is stricter than v1 for the ROW elements of ARRAY
+and MAP fields: v1 applies such a reorder as a type change of the field, which Iceberg accepts,
+and v2 asks for `--full-refresh` (an [open review finding](UPSTREAM.md#follow-ups)). A
+top-level `ARRAY(ROW)` or `MAP(ROW)` column is not diffed field by field, as in v1, so a
+reordered element ROW there is not detected.
 
 `insert_overwrite` is not a valid strategy, as in dbt-trino v1: dbt stops before it creates
 anything [incremental].
@@ -95,7 +98,7 @@ anything [incremental].
 |---|---|
 | Generic and singular data tests, `store_failures` | Tested [features, more, projects] |
 | `sql_header` (e.g. `set session`) on tables and views | Tested on Memory [basic] |
-| Unit tests | Tested [features]. dbt v2 compares the values by their text, for every adapter: `timestamp(7)`–`timestamp(12)` only to the whole second, `double` and `real` to one decimal place, and `decimal(p)` with p > 18 without the sign between -1 and 0 |
+| Unit tests | Tested [features]. dbt v2 compares the values by their text, for every adapter: `timestamp(7)`–`timestamp(12)` only to the whole second, and `double` and `real` to one decimal place |
 | Unit-test fixture types: dbt-trino v1's type cases (integer, varchar, boolean, date, timestamp, timestamp with time zone, decimal) and `decimal(10,2)` | Tested on Memory and Iceberg [features] |
 | `uuid` values in `run_query`, enforced contracts and unit tests | Tested on Memory and Iceberg [features]. `dbt show` prints a uuid as 32 hex digits (the Arrow display of `FixedSizeBinary(16)`); these paths show the canonical text |
 | Grants (Hive `sql-standard`) with revoke on change, also in a mixed-case schema; the user that runs dbt keeps its own privileges | Tested [features] |

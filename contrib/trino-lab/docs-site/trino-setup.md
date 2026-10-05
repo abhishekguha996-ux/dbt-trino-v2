@@ -131,7 +131,7 @@ trino:
 | `roles` | Catalog roles, for example `{hive: analyst, system: ALL}` |
 | `session_properties` | Trino session properties, for example `{query_max_run_time: 2h}` |
 | `client_tags` | List of client tags for resource groups |
-| `query_timeout` | Client-side timeout: a positive number of seconds (`300`, or a quoted decimal such as `"1.5"`) or a duration such as `300s`, `30m` or `1h`. Without it, the driver stops a query after 10 hours |
+| `query_timeout` | Client-side timeout: a positive number of seconds, such as `300` or `1.5`, or a duration such as `300s`, `30m` or `1h`. Without it, the driver stops a query after 10 hours |
 | `timezone` | Session time zone. Driver `go/v0.5.3` does not send it yet, so the session uses the server's time zone |
 | `prepared_statements_enabled` | Accepted for dbt-trino compatibility; it has no visible effect |
 | `retries` | Accepted for dbt-trino compatibility and ignored |
