@@ -401,8 +401,8 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > the v2 relation framework) is entirely my own work.
 >
 > **Evidence:** jaffle-shop-classic (+incremental, +snapshot) builds clean on Trino 483
-> (Iceberg, Delta Lake, Hive on S3), plus a functional suite of about 100 tests, all
-> reproducible from
+> (Iceberg, Delta Lake, Hive on S3), plus a functional suite of 98 tests (97 pass; the Ctrl-C
+> test is an expected failure, a driver limit), all reproducible from
 > https://github.com/abhishekguha996-ux/dbt-trino-v2/tree/trino-pr/integration/contrib/trino-lab.
 > The fork's CI runs both with the Linux x86_64 release binary.
 >
@@ -794,10 +794,11 @@ change no behavior. Struct-diff tests in `dbt-adapter-sql`, and unit tests for t
 
 **Evidence:**
 - jaffle-shop-classic (+incremental, +snapshot) builds clean on Iceberg, Delta Lake and Hive on S3.
-  As for every v2 adapter, the project needs dbt-autofix's YAML changes; Delta models also need
-  `on_table_exists: replace`, and Hive has no snapshot (no `MERGE`). The patch is in
-  `contrib/trino-lab/acceptance`.
-- The functional suite passes on Memory, Hive, Iceberg and Delta Lake (see TEST-RESULTS.md).
+  As for every v2 adapter, the project needs dbt-autofix's YAML changes; Delta models use
+  `on_table_exists: replace`, because `rename` cannot work there, and Hive has no snapshot (no
+  `MERGE`). The patch is in `contrib/trino-lab/acceptance`.
+- The functional suite (98 tests) passes on Memory, Hive, Iceberg and Delta Lake, except the
+  Ctrl-C test, an expected failure from the driver's cancel limit (see TEST-RESULTS.md).
 - The retail and TPC-H projects match Python oracles.
 
 ### Part 5 — `feat(trino): dbt init profile wizard`
@@ -856,3 +857,5 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   relation, which differs from v1.
 - The S2 text names the unit-test comparisons that still hide a difference, and its test gaps.
 - A decimal `query_timeout` must be quoted; Part 1, MIGRATION.md and the docs-site draft say so.
+- The umbrella and Part 4 evidence give the suite of the final run: 98 tests, 97 pass, and the
+  Ctrl-C test is an expected failure. TEST-RESULTS.md records that run.
