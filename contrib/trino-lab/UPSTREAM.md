@@ -1024,3 +1024,17 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   checks of the follow-ups; the 892256e run is the previous record.
 - FEATURES.md, MIGRATION.md and the docs-site draft give the new `query_timeout` and ROW order
   behavior.
+
+## Changes to this kit after the F3 decision (5 October)
+
+- F3 is left out, and `trino-pr/integration` reverts it in 8809833. The Follow-ups section
+  gives the reason: for the `ROW` elements of `ARRAY` and `MAP` fields, F3 stopped a
+  `sync_all_columns` change that Iceberg applies correctly, as v1 does. The recipe folds only
+  F1 into S2 and F2 into Part 1; Part 4 is `8f0bf3b` as it is, and Option B has no F3 variant.
+- The Part 4 text has back the `sync_all_columns` limit for the `ROW` elements of `ARRAY` and
+  `MAP` fields, now with the result on each connector, and its evidence gives the live checks
+  of 8809833. "Commit messages to complete" gives the text that replaces the first "Bugs
+  fixed" bullet of the Part 4 message.
+- TEST-RESULTS.md records the live run of 8809833, with nested ROW order checks; the e7a1675
+  and 892256e runs are short earlier records.
+- FEATURES.md, MIGRATION.md and the docs-site draft give the nested ROW behavior without F3.
