@@ -1,8 +1,9 @@
 # Contributing the Trino adapter to dbt-labs/dbt
 
 Nothing in this fork has been submitted to dbt-labs/dbt. This is the kit for when you decide
-to. The local clone's `upstream` remote has its push URL disabled on purpose. Facts in this
-file were checked on 3 and 4 October 2026.
+to. The local clone's `upstream` remote has its push URL disabled on purpose. The facts about
+dbt Labs and GitHub in this file were checked on 3 and 4 October 2026, and the follow-ups on 4
+and 5 October.
 
 Before the first PR, in this order:
 
@@ -238,9 +239,9 @@ the tests of its crates (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)). Th
 has a Rust test only, because no Trino value reaches that code.
 
 **Open review finding: F3 (major).** F3 also stops a reorder that the Iceberg connector can
-apply. Without F3, Part 4 runs `ALTER COLUMN … SET DATA TYPE` for such an `ARRAY` or `MAP`
-field, as dbt-trino v1 does, and Iceberg keeps each value in its field: the run succeeds with
-correct data (checked live). With F3, the same run stops and asks for `--full-refresh`, so the
+apply. Without F3, a `sync_all_columns` run of Part 4 runs `ALTER COLUMN … SET DATA TYPE` for
+such an `ARRAY` or `MAP` field, as dbt-trino v1 does, and Iceberg keeps each value in its
+field: the run succeeds with correct data (checked live). With F3, the same run stops and asks for `--full-refresh`, so the
 incremental table must be rebuilt. On Delta Lake and Hive, the connector refuses that
 statement (`NOT_SUPPORTED`), so there F3 only replaces the connector's error with the clear
 message. On Iceberg, F3 also prevents a partial change: when the reordered element `ROW` also
@@ -252,12 +253,12 @@ the Part 4 PR, choose one:
   again.
 - Fold F3 as it is. The Part 4 text under [PR descriptions](#pr-descriptions) already states
   the difference from v1 on Iceberg.
-- Leave F3 out. The Part 4 text then needs back the two limits that F3 removed: with
+- Leave F3 out. The Part 4 text then needs back the limit that F3 removed: with
   `sync_all_columns`, a reorder inside an `ARRAY` or `MAP` field runs the type change of that
   field (after any nested `DROP COLUMN`) before the order check, so a connector that cannot
   make the change fails with its own error, not with the `--full-refresh` message
-  (`append_new_columns` reaches the message); and the `ARRAY` and `MAP` case has Rust unit
-  tests only. Leave out the Iceberg limit and the F3 test and evidence too.
+  (`append_new_columns` reaches the message). Leave out the Iceberg limit and F3's loader test
+  and live evidence too; the `ARRAY` and `MAP` case then has no loader test.
 
 ## PR shape options
 
@@ -381,8 +382,8 @@ the push.
 - **The S1 and S2 changie entries** name issue 13131, the Trino release issue, although they
   fix code that every adapter uses. Before the push, set `issue` to the bug issue of the fix (or
   to `""`, as upstream entries without an issue do) and shorten the body. On `pr/s2`, do it
-  before `git commit -c` (see the S2 example). On `pr/s1`, run
-  `git commit --amend --no-edit <entry file>` afterwards.
+  before `git commit -c` (see the S2 example). On `pr/s1`, edit the entry after the
+  cherry-pick, then run `git commit --amend --no-edit <entry file>`.
   - S1, `.changes/unreleased/Fixes-20261004-173301.yaml`: "Show arrow.uuid columns as UUID
     text in run_query, enforced contracts and unit tests instead of panicking, and return an
     error instead of a panic when Agate cannot convert a result column"
@@ -396,16 +397,17 @@ the push.
 - **Commit messages to complete** on their PR branches (the record commits keep the reviewed
   text). For a part with a follow-up, edit the message in the editor of `git commit -c`; for
   the others, use `git commit --amend`:
-  - S2 with F1: in S2's second paragraph, write "and a NULL, also one inside a value such as a
-    map value, shows as NULL". Then add F1's two bullets (the `Decimal128` sign and the leading
-    zeros of the fraction; the NULL text of the fallback), its "Unchanged" line and its
-    "Tests" paragraph, after a line such as "Two more cases showed different values as the
-    same text:". Leave out "Follow-up to …".
-  - Part 1 with F2: in the first bullet, write that `query_timeout` "takes a positive number of
-    seconds, such as 300 or 1.5 (quoted or not), or a Go duration such as 30m". Add F2's second
-    paragraph ("The field now keeps the YAML value as written, …") as a bullet after it. Under
-    "Accepted input shapes", write "query_timeout takes an integer, a decimal or a string", and
-    add F2's "Tests" sentence to the tests paragraph. Leave out F2's own "Semantic changes"
+  - S2 with F1: in S2's second paragraph, replace "and a NULL shows as NULL" with "and a NULL,
+    also one inside a value such as a map value, shows as NULL". Then add F1's two bullets (the
+    `Decimal128` sign and the leading zeros of the fraction; the NULL text of the fallback), its
+    "Unchanged" line and its "Tests" paragraph, after a line such as "Two more cases showed
+    different values as the same text:". Leave out "Follow-up to …".
+  - Part 1 with F2: in the first bullet, replace "(an integer, or a decimal string such as
+    "1.5") or a Go duration such as 30m" with ", such as 300 or 1.5 (quoted or not), or a Go
+    duration such as 30m". Add F2's second paragraph ("The field now keeps the YAML value as
+    written, …") as a bullet after it. Under "Accepted input shapes", replace "query_timeout
+    takes an integer or a string" with "query_timeout takes an integer, a decimal or a string",
+    and add F2's "Tests" sentence to the tests paragraph. Leave out F2's own "Semantic changes"
     paragraph: Part 1's paragraph, with this change, covers it.
   - Part 2 names only S1 as a run-time need. Add after its uuid paragraph: "Unit tests detect
     mismatches in decimal(p<=18), timestamp(1-6) [with time zone], tinyint, smallint, time and
@@ -985,3 +987,20 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 - A decimal `query_timeout` must be quoted; Part 1, MIGRATION.md and the docs-site draft say so.
 - The umbrella and Part 4 evidence give the suite of the final run: 98 tests, 97 pass, and the
   Ctrl-C test is an expected failure. TEST-RESULTS.md records that run.
+
+## Changes to this kit after the follow-ups (5 October)
+
+- The PR series names the follow-ups F1 (S2), F2 (Part 1) and F3 (Part 4) on
+  `trino-pr/followups`. "How to open a PR" folds each into the single commit of its part, with
+  the changie entries and the commit messages to merge, and picks a Needs-first part from its
+  own PR branch.
+- F3 waits for a decision: an open review finding says that it stops a reorder that Iceberg can
+  apply in place, as v1 does.
+- The S2, Part 1 and Part 4 texts no longer list what F1 to F3 fixed: the decimal sign between
+  -1 and 0, a NULL inside a map value, an unquoted decimal `query_timeout`, and the connector's
+  own error for a reorder inside an `ARRAY` or `MAP` field. The float and nanosecond-timestamp
+  comparison limits stay.
+- TEST-RESULTS.md records the live run of `trino-pr/integration` e7a1675 with the red/green
+  checks of the follow-ups; the 892256e run is the previous record.
+- FEATURES.md, MIGRATION.md and the docs-site draft give the new `query_timeout` and ROW order
+  behavior.
