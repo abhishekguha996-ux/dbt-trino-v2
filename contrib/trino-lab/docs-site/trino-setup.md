@@ -160,8 +160,10 @@ support them. dbt stops with an error that names the option:
   - `merge`, `delete+insert`, `microbatch` and snapshots need Iceberg or Delta Lake.
   - Hive tables support `append`.
   - Materialized views need the Iceberg connector.
-- **Delta Lake on a Hive metastore** cannot rename tables. Set `on_table_exists: replace` for
-  Delta models.
+- **Delta Lake on a Hive metastore** cannot rename tables or views, so the default
+  `on_table_exists: rename` fails there. Set `on_table_exists: replace` or `drop` for Delta
+  models. `skip` also works: it never renames, keeps an existing table as it is, and drops a
+  view before it creates the table.
 - **Identifiers.** Trino stores catalog, schema and table names in lowercase, even when they are
   quoted. dbt matches relation names without regard to case.
 - **Model configs** match dbt-trino: `properties`, `on_table_exists`, `view_security`,

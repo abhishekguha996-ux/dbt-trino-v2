@@ -49,9 +49,16 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | snapshots: timestamp, check, `hard_deletes` invalidate / new_record | – | – | ✓ | ✓ | features, more |
 | contracts with `not_null` | ✓ | – | ✓ | ✓ | features |
 
-¹ Trino can't rename managed Delta tables on a Hive metastore; use `drop` or `replace`.
+¹ Trino can't rename managed Delta tables or views on a Hive metastore, so `rename` mode fails
+on Delta: a table rerun fails at the rename, and a switch from a view builds the table, drops
+the view and then fails at the rename, which leaves no relation until a run with `drop` or
+`replace`. Use `drop` or `replace` on Delta. `skip` never renames: it keeps an existing table as
+it is and drops a view before it creates the table, so a view → table switch works on Delta
+[basic].
+
 ² The Hive connector calls this property `external_location`, so `location` does not apply
 (the same in dbt-trino v1).
+
 ³ With a fixed location, use `on_table_exists: replace` or `drop`. In `rename` mode, the new
 table gets the same location, which Iceberg refuses (the same in dbt-trino v1).
 

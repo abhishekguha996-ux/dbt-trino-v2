@@ -122,14 +122,17 @@ Two YAML details apply to `profiles.yml` and `dbt_project.yml`:
 | Materialized views | A full refresh uses `CREATE OR REPLACE MATERIALIZED VIEW`, so the old view stays if the new definition fails (v1 drops it first). `persist_docs` works on materialized views (v1 fails, because Trino has no `COMMENT ON MATERIALIZED VIEW`) |
 | `sql_header` | Now applied to tables and views (statements are split on `;`) |
 
-### Connector limits (same as dbt-trino v1)
+### Connector limits (as in dbt-trino v1, except where noted)
 
 These come from Trino itself, not the adapter:
 
 - **Delta Lake on a Hive metastore can't rename managed tables or views.** Use
   `on_table_exists: replace` (Trino supports `CREATE OR REPLACE TABLE` there) or `drop` for
-  Delta models. In `rename` mode, a table rerun fails, and a switch from a view to a table
-  drops the view and then fails at the rename.
+  Delta models. `skip` also works: it never renames, keeps an existing table as it is, and
+  drops a view before it creates the table. In `rename` mode, a table rerun fails. A switch
+  from a view to a table builds the table and drops the view, then fails at the rename, so the
+  model has no relation until you run it with `drop` or `replace`; v1 failed earlier, at
+  renaming the view, and kept it.
 - **A fixed table location** (`storage_uri` or `properties.location`) needs
   `on_table_exists: replace` or `drop`. In `rename` mode, the new table gets the same location,
   and Iceberg refuses a location that the old table still uses.

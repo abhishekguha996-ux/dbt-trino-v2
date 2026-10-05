@@ -754,11 +754,12 @@ v2 relation framework) is entirely my own work.
   adapters without catalog integrations do. The built-in macros call it only when
   `catalog_name` is set.
 
-**Known limit (Delta Lake on a Hive metastore):** Trino cannot rename managed Delta tables
-there, so `rename` mode fails on Delta: a table rerun fails at the rename, and a switch from a
-view builds the new table, drops the view and then fails at the rename. Use
-`on_table_exists: drop` or `replace` for Delta models. `skip` drops the view first, so a switch
-works on Delta.
+**Known limit (Delta Lake on a Hive metastore):** Trino cannot rename managed Delta tables or
+views there, so `rename` mode fails on Delta: a table rerun fails at the rename, and a switch
+from a view builds the new table, drops the view and then fails at the rename, which leaves no
+relation until a run in another mode (v1 fails earlier, at renaming the view, and keeps it).
+Use `on_table_exists: drop` or `replace` for Delta models. `skip` works too: it never renames,
+keeps an existing table, and drops a view first, so a switch works on Delta.
 
 **Interface changes** (need Product/DX approval): the six config keys and
 `adapter.diff_nested_column_types`.
@@ -829,3 +830,5 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   types that need S2, and two commit messages get their missing facts on the PR branches.
 - The ROW order check covers the ROW elements of ARRAY and MAP fields; its known limits are in
   Part 4, FEATURES.md and MIGRATION.md.
+- `skip` mode works on Delta Lake, and a `rename`-mode switch from a view on Delta leaves no
+  relation, which differs from v1.
