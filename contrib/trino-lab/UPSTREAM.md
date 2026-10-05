@@ -241,13 +241,13 @@ has a Rust test only, because no Trino value reaches that code.
 **Open review finding: F3 (major).** F3 also stops a reorder that the Iceberg connector can
 apply. Without F3, a `sync_all_columns` run of Part 4 runs `ALTER COLUMN … SET DATA TYPE` for
 such an `ARRAY` or `MAP` field, as dbt-trino v1 does, and Iceberg keeps each value in its
-field: the run succeeds with correct data (checked live). With F3, the same run stops and asks for `--full-refresh`, so the
-incremental table must be rebuilt. On Delta Lake and Hive, the connector refuses that
-statement (`NOT_SUPPORTED`), so there F3 only replaces the connector's error with the clear
-message. On Iceberg, F3 also prevents a partial change: when the reordered element `ROW` also
-changes a field type that Iceberg cannot change, Part 4 drops the removed fields and then fails
-with `ICEBERG_COMMIT_ERROR`, without the `--full-refresh` message. Do not fold F3 yet. Before
-the Part 4 PR, choose one:
+field: the run succeeds with correct data (checked live). With F3, the same run stops and asks
+for `--full-refresh`, so the incremental table must be rebuilt. On Delta Lake and Hive, the
+connector refuses that statement (`NOT_SUPPORTED`), so there F3 only replaces the connector's
+error with the clear message. On Iceberg, F3 also prevents a partial change: when the reordered
+element `ROW` also changes a field type that Iceberg cannot change, Part 4 drops the removed
+fields and then fails with `ICEBERG_COMMIT_ERROR`, without the `--full-refresh` message. Do
+not fold F3 yet. Before the Part 4 PR, choose one:
 
 - Change F3 so that Iceberg can still apply such a reorder in place, and have it reviewed
   again.
