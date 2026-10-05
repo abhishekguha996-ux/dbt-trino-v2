@@ -52,9 +52,9 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 ¹ Trino can't rename managed Delta tables or views on a Hive metastore, so `rename` mode fails
 on Delta: a table rerun fails at the rename, and a switch from a view builds the table, drops
 the view and then fails at the rename, which leaves the model without a relation until its next
-run and leaves a `__dbt_tmp` table behind. Use `drop` or `replace` on Delta. `skip` never renames: it keeps an existing table as
-it is and drops a view before it creates the table, so a view → table switch works on Delta
-[basic].
+run and leaves a `__dbt_tmp` table behind. Use `drop` or `replace` on Delta. `skip` never
+renames: it keeps an existing table as it is and drops a view before it creates the table, so a
+view → table switch works on Delta [basic].
 
 ² The Hive connector calls this property `external_location`, so `location` does not apply
 (the same in dbt-trino v1).
