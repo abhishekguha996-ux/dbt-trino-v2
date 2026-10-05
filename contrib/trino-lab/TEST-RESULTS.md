@@ -283,9 +283,9 @@ yet):
   their Part 1, as the [per-PR recipe](UPSTREAM.md#how-to-open-a-pr-from-the-fork) cuts them.
 - **F1's NULL text with a Trino value:** no Trino value reaches that code (see the
   [red/green notes](#redgreen-checks-of-the-follow-ups)); it has Rust unit tests only.
-- **dbt-trino v1 with a reorder in the ROW elements of an `ARRAY` or `MAP` field:** that v1
-  applies it with `SET DATA TYPE` comes from its code (`impl.py` of v1.10.5), not from a v1
-  run.
+- **dbt-trino v1 with a reorder in the ROW elements of an `ARRAY` or `MAP` field:** what v1
+  does there (`SET DATA TYPE` with `sync_all_columns`, values in the wrong fields with
+  `append_new_columns`) comes from its code (`impl.py` of v1.10.5), not from a v1 run.
 - **Kerberos against a KDC:** unit tests only; the stack has no KDC.
 - **Trino versions other than 483**, multi-node Trino, AWS S3, AWS Glue or a production
   metastore.
