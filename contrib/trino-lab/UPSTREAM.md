@@ -862,9 +862,7 @@ v2 relation framework) is entirely my own work.
   - grants: the show-grants SQL lowercases names and reads only user grantees
     (`grantee_type = 'USER'`), because dbt grants only to users. It leaves out the current
     user, so dbt never revokes its own privileges
-  - `on_schema_change` keeps drop-before-add (a comment explains the Hive metastore
-    trade-off), and with `sync_all_columns` it stops before any `ALTER` when `ROW` fields are
-    already out of the model's order
+  - `on_schema_change` keeps drop-before-add; a comment explains the Hive metastore trade-off
 - **Config keys**, with dbt-trino's names (Exasol precedent): `properties` for models, seeds and
   snapshots; `on_table_exists`, `view_security`, `views_enabled`, `sync_nested_columns` and
   `grace_period` for models only. They are in `log_state_mod_diff` too.
@@ -878,24 +876,29 @@ v2 relation framework) is entirely my own work.
     `INTEGER` range, which v1 could not load, become `BIGINT`
 - **Nested ROW schema sync:** `adapter.diff_nested_column_types`, a generic struct diff in
   `dbt-adapter-sql`. New fields keep the source order, and a missing nested struct is added as
-  one field. Trino matches `ROW` fields by position, so if the fields of a `ROW` column, of a
-  `ROW` nested in it, or of the `ROW` elements of its `ARRAY` and `MAP` fields would be in
-  another order than in the model, dbt stops with an error that asks for `--full-refresh` (v1
-  swaps the values silently; for the `ROW` elements of `ARRAY` and `MAP` fields, only with
-  `append_new_columns`). With `sync_all_columns`, fields that are already in another order
-  stop the run before any `ALTER`, so the table stays as it is. A new field that `ADD COLUMN`
-  puts at the end of a `ROW`, not in the middle as in the model, is found after the `ALTER`
-  statements: the field is then already in the table, and later runs fail too until a
-  `--full-refresh`. With `append_new_columns`, the check runs after the `ADD COLUMN`
-  statements. Known limits:
+  one field. Trino matches `ROW` fields by position. So after the `ALTER` statements, dbt checks
+  the field order of a `ROW` column, of the `ROW`s nested in it and of the `ROW` elements of its
+  `ARRAY` and `MAP` fields. If it differs from the model's order, dbt stops with an error that
+  asks for `--full-refresh`; v1 swaps the values silently (for the `ROW` elements of `ARRAY`
+  and `MAP` fields, only with `append_new_columns`). A new field that `ADD COLUMN` puts at the
+  end of a `ROW`, not in the middle as in the model, is then already in the table, and later
+  runs fail too until a `--full-refresh`. Known limits:
   - A top-level `ARRAY(ROW)` or `MAP(ROW)` column is not diffed field by field. It goes through
     dbt's flat `on_schema_change`, as in v1, so a reordered element `ROW` there is not detected.
   - Inside `ARRAY` and `MAP` fields, only the order of the fields that both element `ROW`s have
     is checked. A field added there is not added on its own: the whole field counts as a type
     change, which only `sync_all_columns` applies.
-  - On Iceberg, a reorder in the `ROW` elements of an `ARRAY` or `MAP` field stops the run,
-    although Iceberg can apply it with `ALTER COLUMN … SET DATA TYPE` and keep the data, as v1
-    does with `sync_all_columns`. The table then needs a `--full-refresh`.
+  - With `sync_all_columns`, a new field order in the `ROW` elements of an `ARRAY` or `MAP`
+    field is a type change of that field, as in v1: dbt runs `ALTER COLUMN … SET DATA TYPE`,
+    after any nested `DROP COLUMN` and before the order check. Iceberg applies it and keeps each
+    value in its field, so the run succeeds. Delta Lake and Hive refuse it (`NOT_SUPPORTED`):
+    the run fails with that error, not with the `--full-refresh` message, and the table does
+    not change. `append_new_columns` applies no type change and stops with the message.
+  - When the same diff also removes a field and needs a type change that Iceberg cannot make
+    (for example `integer` to `varchar` in the element `ROW`), Iceberg runs the `DROP COLUMN`
+    and then fails with `ICEBERG_COMMIT_ERROR`. This is the drop-before-add trade-off: the
+    nested `DROP COLUMN` statements run first, as in v1, so the table is partly changed until a
+    `--full-refresh`.
 - **Shared code:** `CatalogRelation::from_model_config_and_catalogs`
   (`dbt-adapter/src/catalog_relation.rs`) has a Trino arm that fails when a model sets
   `catalog_name`, with the same message as `properties()`. It is needed because
@@ -923,12 +926,12 @@ a switch works on Delta.
 **Interface changes** (need Product/DX approval): the six config keys and
 `adapter.diff_nested_column_types`.
 
-**Tests:** loader tests for the `v2:` changes, including the `sync_column_schemas` override, a
-mixed-case database in the catalog and `check_schema_exists` SQL, and the user-only grants
-query, and that an `ARRAY(ROW)` reorder with a removed field stops a `sync_all_columns` run
-before any `ALTER`. The two `v2:` edits in `seeds/helpers.sql` remove a v1 comment and an
-unused `set`, and change no behavior. Struct-diff tests in `dbt-adapter-sql`, and unit tests
-for the shared guard (with and without `catalog_name`) and for the Trino seed types in
+**Tests:** loader tests for the `v2:` changes, including the `sync_column_schemas` override,
+the nested `ROW` order check, a mixed-case database in the catalog and `check_schema_exists`
+SQL, and the user-only grants query. The two `v2:` edits in `seeds/helpers.sql` remove a v1
+comment and an unused `set`, and change no behavior. Struct-diff tests in `dbt-adapter-sql`,
+also for the `ROW` elements of `ARRAY` and `MAP` fields, which have no loader test, and unit
+tests for the shared guard (with and without `catalog_name`) and for the Trino seed types in
 `convert_type`.
 
 **Evidence:**
@@ -939,8 +942,12 @@ for the shared guard (with and without `catalog_name`) and for the Trino seed ty
 - The functional suite (98 tests) passes on Memory, Hive, Iceberg and Delta Lake, except the
   Ctrl-C test, an expected failure from the driver's cancel limit (see TEST-RESULTS.md).
 - The retail and TPC-H projects match Python oracles.
-- With `sync_all_columns`, `ARRAY(ROW)` and `MAP(ROW)` reorders inside a `ROW` column stop
-  before any `ALTER` on Iceberg, Delta Lake and Hive, and the table is unchanged (checked live).
+- Nested ROW sync, checked live inside a `ROW` column: with `sync_all_columns`, a new field
+  order in the `ROW` elements of an `ARRAY` or `MAP` field is applied on Iceberg, with each
+  value in its field, and fails with `NOT_SUPPORTED` on Delta Lake and Hive, with the table
+  unchanged; with `append_new_columns`, it stops with the `--full-refresh` error on all three.
+  A field added in the middle of a `ROW` stops the Iceberg run with that error before any
+  `INSERT` or `MERGE`.
 
 ### Part 5 — `feat(trino): dbt init profile wizard`
 
