@@ -66,11 +66,18 @@ table gets the same location, which Iceberg refuses (the same in dbt-trino v1).
 | `on_schema_change`: append_new_columns | ✓ | ✓ | ✓ | ✓ | incremental |
 | `on_schema_change`: sync_all_columns (incl. type change on Iceberg/Delta) | n/t | ✓ | ✓ | ✓⁴ | incremental |
 | `on_schema_change`: fail, ignore | ✓ | n/t | ✓ | n/t | incremental |
-| `sync_nested_columns` (new fields keep the model's order; a missing nested ROW is added whole; a field in the middle of a ROW asks for `--full-refresh`) | – | – | ✓ | – | incremental |
+| `sync_nested_columns` (new fields keep the model's order; a missing nested ROW is added whole; a field in the middle of a ROW asks for `--full-refresh`)⁵ | – | – | ✓ | – | incremental |
 | `views_enabled: false` | ✓ | n/t | ✓ | n/t | incremental |
 | full refresh | ✓ | ✓ | ✓ | ✓ | incremental |
 
 ⁴ Delta needs `column_mapping_mode = 'name'` to drop or rename columns.
+
+⁵ The order check covers a ROW column, the ROWs nested in it, and the ROW elements of its ARRAY
+and MAP fields (the last ones in unit tests only). With `sync_all_columns`, a reorder inside an
+ARRAY or MAP field is first applied as a type change of that field, so a connector that cannot
+make the change fails with its own error, not with the `--full-refresh` message. A top-level
+`ARRAY(ROW)` or `MAP(ROW)` column is not diffed field by field, as in v1, so a reordered element
+ROW there is not detected.
 
 `insert_overwrite` is not a valid strategy, as in dbt-trino v1: dbt stops before it creates
 anything [incremental].

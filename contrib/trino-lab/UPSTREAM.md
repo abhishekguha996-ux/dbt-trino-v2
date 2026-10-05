@@ -311,7 +311,9 @@ and each passed fmt, `cargo check --all-targets` and the tests of its crates the
     behavior change", and add that `dbt_project.yml` (quoted version) and `adapters.sql` (v1's
     header comment removed) have unmarked edits and that `macros/relations.sql` is new. The
     dbt-trino line of `crates/dbt-loader/src/dbt_macro_assets/README.md` says "dbt v2 changes
-    are marked `v2:` in each file"; correct it in the same amend.
+    are marked `v2:` in each file"; correct it in the same amend. In the first "Bugs fixed"
+    bullet, say that a reorder in the `ROW` elements of `ARRAY` and `MAP` fields reaches the
+    `--full-refresh` stop only with `append_new_columns` (see the Part 4 text).
 
 **One PR (Option B):** Parts 0 to 5 on one branch, without S1 and S2, which are separate PRs
 in both options:
@@ -721,11 +723,21 @@ v2 relation framework) is entirely my own work.
     `INTEGER` range, which v1 could not load, become `BIGINT`
 - **Nested ROW schema sync:** `adapter.diff_nested_column_types`, a generic struct diff in
   `dbt-adapter-sql`. New fields keep the source order, and a missing nested struct is added as
-  one field. Trino matches `ROW` fields by position, so if the fields of a `ROW` column, or of a
-  `ROW` in it, would be in another order than in the model, dbt stops with an error that asks
-  for `--full-refresh` (v1 swaps the values silently). The error comes after the `ALTER`
-  statements, so the new field is already in the table, and later runs fail too until a
-  `--full-refresh`.
+  one field. Trino matches `ROW` fields by position, so if the fields of a `ROW` column, of a
+  `ROW` nested in it, or of the `ROW` elements of its `ARRAY` and `MAP` fields would be in
+  another order than in the model, dbt stops with an error that asks for `--full-refresh` (v1
+  swaps the values silently). The error comes after the `ALTER` statements, so the new field is
+  already in the table, and later runs fail too until a `--full-refresh`. Known limits:
+  - A top-level `ARRAY(ROW)` or `MAP(ROW)` column is not diffed field by field. It goes through
+    dbt's flat `on_schema_change`, as in v1, so a reordered element `ROW` there is not detected.
+  - Inside `ARRAY` and `MAP` fields, only the order of the fields that both element `ROW`s have
+    is checked. A field added there is not added on its own: the whole field counts as a type
+    change, which only `sync_all_columns` applies.
+  - With `sync_all_columns`, the type changes (`ALTER COLUMN … SET DATA TYPE`, after any nested
+    `DROP COLUMN`) run before the order check. So a reorder inside an `ARRAY` or `MAP` field
+    fails with the connector's own error if it cannot change that type, not with the
+    `--full-refresh` message; `append_new_columns` reaches the message.
+  - The `ARRAY` and `MAP` case has Rust unit tests only, no loader or live test.
 - **Shared code:** `CatalogRelation::from_model_config_and_catalogs`
   (`dbt-adapter/src/catalog_relation.rs`) has a Trino arm that fails when a model sets
   `catalog_name`, with the same message as `properties()`. It is needed because
@@ -815,3 +827,5 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   in them, including two unmarked edits, and `macros/relations.sql`, which is new.
 - The Part 2 and Part 4 texts name every shared-code change, Part 2 names all the unit-test
   types that need S2, and two commit messages get their missing facts on the PR branches.
+- The ROW order check covers the ROW elements of ARRAY and MAP fields; its known limits are in
+  Part 4, FEATURES.md and MIGRATION.md.
