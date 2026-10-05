@@ -7,9 +7,10 @@ file were checked on 3 and 4 October 2026.
 Before the first PR, in this order:
 
 1. Sign the [Individual CLA](#individual-cla).
-2. Finish the review fixes in the nine parts, rebuild the parts on the latest dbt-labs `main`,
-   and record the checks and the live results with commit SHAs in
-   [TEST-RESULTS.md](TEST-RESULTS.md).
+2. Push `trino-pr/integration` to your fork, check that the fork workflow's Linux x86_64 run
+   passes, and add it to [TEST-RESULTS.md](TEST-RESULTS.md). The review fixes are done:
+   TEST-RESULTS.md records the checks and the live results of the series (6f3a4a3, on
+   dbt-labs `main` 7bbd974) with commit SHAs.
 3. File the [driver issues](DRIVER-ISSUES.md).
 4. Post the [Slack message](#slack-message) and ask which [PR shape](#pr-shape-options) the
    maintainers want.
@@ -154,23 +155,33 @@ It is the same form that `cla-bot` links on a PR. The explanation is on
 Each part is one commit. Together they change only `crates/` and `.changes/`. `contrib/` and
 `.github/` are fork-only and never go upstream.
 
-| Part | Branch | Commit | Commit subject | Needs first |
+| Part | Record branch | Commit | Commit subject | Needs first |
 |---|---|---|---|---|
-| 0 | `trino-pr/p0` | `<sha>` | `fix(adbc): redact accessToken URI parameters in Builder Debug output` | — |
-| S1 | `trino-pr/s1` | `<sha>` | `fix(dbt-agate): show arrow.uuid columns as text instead of panicking` | — |
-| S2 | `trino-pr/s2` | `<sha>` | `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm` | — |
-| 1 | `trino-pr/p1` | `<sha>` | `feat(trino): profile schema and ADBC authentication` | — |
-| 2 | `trino-pr/p2` | `<sha>` | `feat(trino): relations, columns, SQL types and literals` | 1 |
-| 3a | `trino-pr/p3a` | `<sha>` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
-| 3b | `trino-pr/p3b` | `<sha>` | `feat(trino): metadata adapter, relation listing and get_relation` | 1, 3a |
-| 4 | `trino-pr/p4` | `<sha>` | `feat(trino): dbt-trino macro package, materializations and model configs` | 1, 2 |
-| 5 | `trino-pr/p5` | `<sha>` | `feat(trino): dbt init profile wizard` | 1 |
+| 0 | `trino-pr/p0-redact-access-token` | `1901220` | `fix(adbc): redact accessToken URI parameters in Builder Debug output` | — |
+| S1 | `trino-pr/s1-agate-uuid-text` | `5ee10b4` | `fix(dbt-agate): show arrow.uuid columns as text instead of panicking` | — |
+| S2 | `trino-pr/s2-unit-test-compare` | `5733d42` | `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm` | — |
+| 1 | `trino-pr/p1-profile-auth` | `ab2948f` | `feat(trino): profile schema and ADBC authentication` | — |
+| 2 | `trino-pr/p2-types-relations` | `8943170` | `feat(trino): relations, columns, SQL types and literals` | 1 |
+| 3a | `trino-pr/p3a-generic-metadata-adapter` | `7de6091` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
+| 3b | `trino-pr/p3b-metadata` | `10a13da` | `feat(trino): metadata adapter, relation listing and get_relation` | 1, 3a |
+| 4 | `trino-pr/p4-macros-materializations` | `8f0bf3b` | `feat(trino): dbt-trino macro package, materializations and model configs` | 1, 2 |
+| 5 | `trino-pr/p5-init-wizard` | `6f3a4a3` | `feat(trino): dbt init profile wizard` | 1 |
 
-Each `trino-pr/<part>` branch starts at `upstream/main` (`<sha>`) and holds the part's commit,
-after the commits of the parts in its "Needs first" column. `trino-pr/series` holds all parts in
-this order, and `trino-pr/integration` adds the fork-only `contrib/` and `.github/` commits. The
-`trino/p*` branches, locally and on the fork, hold the series from before the review fixes: do
-not open PRs from them.
+**The record branches are stacked.** They start at dbt-labs `main` 7bbd974
+(`7bbd974389dbd08da3ece92396ecdd0c8f99719c`, 2 October 2026), and each one holds all the parts
+above it in the table: `trino-pr/p1-profile-auth`, for example, holds Part 0, S1, S2 and
+Part 1. `trino-pr/series` holds all nine parts and equals `trino-pr/p5-init-wizard` (6f3a4a3).
+`trino-pr/integration` is `trino-pr/series` plus the fork-only `contrib/` and `.github/`
+commits. These branches record the reviewed commits. Never open a PR from them: Copybara
+mirrors the whole diff against `main`, so a PR from `trino-pr/p1-profile-auth` would also carry
+Part 0, S1 and S2. At PR time, cut a new branch for each PR from the latest `main` (see
+[How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)).
+
+Each part was also checked alone: on 7bbd974, with only the parts in its "Needs first" column
+before it, it applies cleanly and passes `cargo fmt`, `cargo check --all-targets` and the tests
+of its crates (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)). If you rebase the series,
+update the Commit column. The `trino/p*` branches (local and on the fork) and the local
+`trino-ready/*` branches hold earlier rounds: do not open PRs from them either.
 
 S1 and S2 fix bugs in code that every adapter uses. They use no Trino code, so they go upstream
 as small "Fixes" PRs of their own, each with cross-adapter tests. Part 2 needs them at run
@@ -183,8 +194,8 @@ Option A). On `main`, `backend_of(Trino)` is `todo!("Trino")`, so the Trino code
 and Part 5 fills the profile fields that Part 1 adds. Part 3b builds on Part 3a's
 `GenericMetadataAdapter`, and Part 4 on the Trino types and relations of Part 2. Before you
 open a PR, apply the part alone, with the parts it needs, to the latest `main` and run the
-tests of the crates it changes. A useful adapter needs all parts; Part 0 is defense in depth
-for Part 1's JWT.
+gates there (see [How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)). A useful
+adapter needs all parts; Part 0 is defense in depth for Part 1's JWT.
 
 ## PR shape options
 
@@ -215,8 +226,9 @@ review and one Copybara sync. Exasol #15322 landed this way, but it was an exten
 existing adapter, and it still took 65 days.
 
 **S1 and S2 are separate PRs in both options.** They are small, they fix code that every
-adapter uses, and they need no other part. `trino-pr/series` holds them too: rebase it on
-`main` after they have landed, before you use it for Option B.
+adapter uses, and they need no other part. `trino-pr/series` holds them too, so do not open
+the Option B PR from it: cut `pr/series` with the seven Trino parts only (see
+[How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)).
 
 **Recommendation.** Propose Option A in Slack and in the umbrella issue, and offer Option B if
 `felipecrv` prefers one review. Do not open a strict stack: with Copybara, every later PR would
@@ -228,30 +240,89 @@ Your plan (clone, make a branch, port the code, open a PR) is right, with these 
 
 - You cannot push to dbt-labs/dbt. A PR comes from a branch in your fork,
   `abhishekguha996-ux/dbt-trino-v2`, which is already a GitHub fork of dbt-labs/dbt. The clone
-  in `~/dbttrinoadapter/upstream/dbt` has `origin` = your fork and `upstream` = dbt-labs/dbt.
-  A fresh clone works too.
-- Open each PR from its `trino-pr/<part>` branch (see [The PR series](#the-pr-series)). These
-  branches change only `crates/` and `.changes/`. Rebase the branch on the latest dbt-labs
-  `main` first.
-- Run the same gates as dbt Labs' CI before you push.
+  in `~/dbttrinoadapter/upstream/dbt` has `origin` = your fork and `upstream` = dbt-labs/dbt,
+  and it holds the commits of [the PR series](#the-pr-series), which are not pushed yet. Run
+  the commands below in that clone, or in a worktree of it, with a clean working tree.
+- Cut one new branch for each PR from the latest dbt-labs `main`. Cherry-pick into it the
+  parts in its "Needs first" column that are not on `main` yet, then the part itself. Never use
+  a `trino-pr/*` record branch as a PR branch: they are stacked.
+- Run the same gates as dbt Labs' CI (`.github/workflows/ci.yml`) before you push.
+
+For example, Part 2 while Part 1 is still open:
 
 ```sh
 git fetch upstream
-git switch trino-pr/p1
-git rebase upstream/main          # if main has moved since the branch was made
+git switch -c pr/p2 upstream/main
+git cherry-pick ab2948f           # Needs first: Part 1, only while it is not on main
+git cherry-pick 8943170           # Part 2
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo nextest run --workspace
-git push origin trino-pr/p1       # after a rebase of a pushed branch: add --force-with-lease
-gh pr create -R dbt-labs/dbt --base main --head abhishekguha996-ux:trino-pr/p1 \
-  --title "feat(trino): profile schema and ADBC authentication" --body-file pr-part1.md
+RUST_MIN_STACK=8388608 cargo nextest run --workspace
+git push origin pr/p2
+gh pr create -R dbt-labs/dbt --base main --head abhishekguha996-ux:pr/p2 \
+  --title "feat(trino): relations, columns, SQL types and literals" --body-file pr-part2.md
 ```
 
-For one PR (Option B), use `trino-pr/series` in the same way. For the live Linux evidence,
-push `trino-pr/integration` (the series plus the fork-only `contrib/` and `.github/` commits)
-to the fork: the fork workflow then runs the Rust checks, the functional suite and the
-jaffle-shop build with the Linux binary. The other `trino-pr/` branches have no fork workflow,
-so a push of them starts no run.
+The cherry-picks for each PR:
+
+| PR | Branch | First, only the parts not on `main` yet | Then |
+|---|---|---|---|
+| Part 0 | `pr/p0` | — | `1901220` |
+| S1 | `pr/s1` | — | `5ee10b4` |
+| S2 | `pr/s2` | — | `5733d42` |
+| Part 1 | `pr/p1` | — | `ab2948f` |
+| Part 2 | `pr/p2` | `ab2948f` (Part 1) | `8943170` |
+| Part 3a | `pr/p3a` | — | `7de6091` |
+| Part 3b | `pr/p3b` | `ab2948f 7de6091` (Parts 1 and 3a) | `10a13da` |
+| Part 4 | `pr/p4` | `ab2948f 8943170` (Parts 1 and 2) | `8f0bf3b` |
+| Part 5 | `pr/p5` | `ab2948f` (Part 1) | `6f3a4a3` |
+
+Each of these sets applies cleanly to 7bbd974 (checked on 4 October with `git merge-tree`),
+and each passed fmt, `cargo check --all-targets` and the tests of its crates there (see
+[TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)).
+
+- **A part that has landed** reaches `main` as a new Copybara commit by `fa-assistant`, so its
+  SHA differs from the Commit column, and `git branch --contains` does not find it. Judge
+  "landed" from its PR, and leave the part out. If you cherry-pick it anyway and git reports
+  that the cherry-pick is empty, run `git cherry-pick --skip`.
+- **A PR that includes a Needs-first part** says "review only the last commit" and names the
+  PR of that part (see Option A).
+- **A conflict** after `main` has moved: resolve it on the `pr/` branch and run the gates
+  again. Leave the `trino-pr/*` record branches as they are.
+- **The S1 and S2 changie entries** name issue 13131, the Trino release issue, although they
+  fix code that every adapter uses. On `pr/s1` and `pr/s2`, before the push, set `issue` to the
+  bug issue of the fix (or to `""`, as upstream entries without an issue do) and shorten the
+  body, then run `git commit --amend --no-edit <entry file>`:
+  - S1, `.changes/unreleased/Fixes-20261004-173301.yaml`: "Show arrow.uuid columns as UUID
+    text in run_query, enforced contracts and unit tests instead of panicking, and return an
+    error instead of a panic when Agate cannot convert a result column"
+  - S2, `.changes/unreleased/Fixes-20261004-173311.yaml`: "Fix unit tests passing despite
+    mismatched values in columns such as small integers, Decimal32/64, millisecond and
+    microsecond timestamps, time, binary and map columns, and NULL against a value"
+
+**One PR (Option B):** Parts 0 to 5 on one branch, without S1 and S2, which are separate PRs
+in both options:
+
+```sh
+git fetch upstream
+git switch -c pr/series upstream/main
+git cherry-pick 1901220 ab2948f 8943170 7de6091 10a13da 8f0bf3b 6f3a4a3   # Parts 0 to 5
+# then the gates, git push origin pr/series, and gh pr create with
+# --head abhishekguha996-ux:pr/series
+```
+
+These seven picks also apply cleanly to 7bbd974, but the gates have not run on this
+combination yet. Do not push `trino-pr/series` itself as the PR branch, because it also holds
+S1 and S2. After S1 and S2 have landed, `git switch -c pr/series trino-pr/series` followed by
+`git rebase upstream/main` gives the same branch, because the rebase skips commits whose
+changes are already on `main`. If Copybara changed S1 or S2 on the way, use the cherry-picks.
+
+**Live Linux evidence:** push `trino-pr/integration` (the series plus the fork-only
+`contrib/` and `.github/` commits) to the fork. The fork workflow then runs the Rust checks,
+builds the Linux and macOS archives, and runs the functional suite and the jaffle-shop build
+with the Linux binary. Only `trino-pr/integration` has the fork workflow, so a push of a
+`trino-pr/*` record branch or a `pr/` branch starts no fork run (dbt Labs' own workflows run on
+a push only to `main`).
 
 ## Coordination with #15345
 
@@ -349,7 +420,8 @@ changie new --kind "<kind>" --body "<text>" --custom issue=13131 \
 
 Do not pass `--custom project=dbt-core`: changie rejects it, because `.changie.yaml` adds
 `project: dbt-core` itself (the example in `AGENTS.md` still passes it). The S1 and S2 entries
-name issue 13131; when their bug issues exist, set `issue` in each entry to its bug issue.
+name issue 13131: change their `issue` and body on their PR branches (see
+[How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)).
 
 ### Part 0 — `fix(adbc): redact accessToken URI parameters in Builder Debug output`
 
@@ -691,3 +763,8 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 - The Exasol precedent spent 28 of its 65 days waiting for the CLA.
 - The cancel analysis is corrected: the driver runs the query with `context.Background()`, so
   `AdbcStatementCancel` cannot stop it (checked with a driver-only repro).
+
+## Changes to this kit after the 4 October review
+
+- The PR series names the real record branches and commits. They are stacked, so each PR gets
+  a new `pr/` branch with cherry-picks at PR time, and Option B leaves out S1 and S2.
