@@ -18,7 +18,7 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | `method: kerberos` (keytab) | Unit-tested; not tested against a KDC |
 | `method: certificate`, `oauth`, `oauth_console`, `gssapi` | Not supported by the ADBC driver: clear error (unit-tested) |
 | `cert: false` / TLS verification on by default | Tested [auth]; default differs from v1 (see MIGRATION.md) |
-| `host` must be a host name; `query_timeout` as seconds or a duration; `starburst_*` keys; `role` | Tested [auth] |
+| `host` must be a host name; `query_timeout` as seconds or a duration (a decimal must be quoted); `starburst_*` keys; `role` | Tested [auth] |
 | `session_properties` | Tested [features, more] |
 | `roles` | Unit-tested; every lab profile sets `roles: {hive: admin}`, but no test checks the role |
 | `client_tags` | Unit-tested; sent in [auth], but no test checks the tags |
@@ -112,7 +112,7 @@ anything [incremental].
 | Packages (`dbt_utils` 1.3) | Tested [more] |
 | Seeds: type inference (v1-compatible), `column_types`, JSON, Unicode, quotes, `%s`, nulls, a 2,500-row seed (inserted in batches of up to 1,000 rows) | Tested [features] |
 | Python models | Not supported (as in v1) |
-| `catalogs.yml` catalog integrations (dbt-trino 1.10) | Not yet: clear error when `catalog_name` is set [more] |
+| `catalogs.yml` catalog integrations (dbt-trino 1.10) | Not yet: clear error when `catalog_name` is set [more]. A custom macro that calls `adapter.build_catalog_relation` without `catalog_name` gets dbt's shared internal error, because Trino has no default catalog relation yet |
 | Per-model `client_tags` / `http_headers` routing (dbt-trino 1.10) | Not supported yet |
 | `map`, `row`, `time with time zone` and HyperLogLog values in `run_query` | Differ from v1: Go-formatted text, and HyperLogLog fails (driver: adbc-drivers/trino#19 for `map` and `row`; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md)). Arrays become one column per element (dbt v2) |
 | Static analysis / column-level lineage | Not in the dbt v2 OSS build for any adapter |

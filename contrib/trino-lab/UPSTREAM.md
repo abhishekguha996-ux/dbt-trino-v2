@@ -779,8 +779,8 @@ v2 relation framework) is entirely my own work.
 **Known limit (Delta Lake on a Hive metastore):** Trino cannot rename managed Delta tables or
 views there, so `rename` mode fails on Delta: a table rerun fails at the rename, and a switch
 from a view builds the new table, drops the view and then fails at the rename, which leaves the
-model without a relation until its next run (v1 fails earlier, at renaming the view, and keeps
-it).
+model without a relation until its next run and leaves a `__dbt_tmp` table behind (v1 fails
+earlier, at renaming the view, and keeps it).
 Use `on_table_exists: drop` or `replace` for Delta models. `skip` works too: it never renames,
 keeps an existing table, and drops a view first, so a switch works on Delta.
 
