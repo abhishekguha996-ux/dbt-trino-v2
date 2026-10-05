@@ -127,16 +127,18 @@ shared `Internal Error: build_relation_catalog cannot be invoked by an adapter T
 (dbt9002), because Trino has no default catalog relation yet. `catalog_name: 'none'` gets the
 shared "not defined in catalogs.yml" error on both binaries.
 
-**Further checks with the final binary** found the unit-test limits listed below. Unit tests
-on the memory catalog, actual value against expected value:
+**Further checks with the final binary** confirm some of the known limits below:
 
-- `timestamp(9)`: a 1 ns and a 1 ms difference pass; a 1 s difference fails.
-- `double`: 1.23 against 1.24 passes; 1.23 against 1.33 fails, shown as `1.3 -> 1.2`.
-- `decimal(20, 2)`: -0.50 against 0.50 passes; -0.50 against -0.51 fails, shown without the
-  signs as `0.51 -> 0.50`.
-
-And a profile with `query_timeout: 1.5` (unquoted) fails to parse with `data did not match any
-variant of untagged enum StringOrInteger`; with `"1.5"`, `dbt debug` passes.
+- Unit tests on the memory catalog, actual value against expected value:
+  - `timestamp(9)`: a 1 ns and a 1 ms difference pass; a 1 s difference fails.
+  - `double`: 1.23 against 1.24 passes; 1.23 against 1.33 fails, shown as `1.3 -> 1.2`.
+  - `decimal(20, 2)`: -0.50 against 0.50 passes; -0.50 against -0.51 fails, shown without the
+    signs as `0.51 -> 0.50`.
+- A profile with `query_timeout: 1.5` (unquoted) fails to parse with `data did not match any
+  variant of untagged enum StringOrInteger`; with `"1.5"`, `dbt debug` passes.
+- On Delta, in `rename` mode, a switch from a view fails at the rename and leaves only
+  `m__dbt_tmp`. The next run creates the table `m`, because nothing needs a rename, and a rerun
+  of that table fails at the rename again.
 
 ## Known limits
 
@@ -174,8 +176,8 @@ yet):
 
 - Delta Lake on a Hive metastore cannot rename managed tables or views: use
   `on_table_exists: drop` or `replace`; `skip` never renames, so it works too. In `rename`
-  mode, a switch from a view drops the view and then fails at the rename, which leaves no
-  relation until a run with `drop` or `replace` (v1 failed earlier and kept the view).
+  mode, a switch from a view drops the view and then fails at the rename, which leaves the
+  model without a relation until its next run (v1 failed earlier and kept the view).
 - Delta Lake drops or renames columns only with `column_mapping_mode = 'name'`.
 - Microbatch `concurrent_batches`: Iceberg rejects concurrent batch commits ("Found new
   conflicting delete files"), so batches stay sequential.

@@ -778,8 +778,9 @@ v2 relation framework) is entirely my own work.
 
 **Known limit (Delta Lake on a Hive metastore):** Trino cannot rename managed Delta tables or
 views there, so `rename` mode fails on Delta: a table rerun fails at the rename, and a switch
-from a view builds the new table, drops the view and then fails at the rename, which leaves no
-relation until a run in another mode (v1 fails earlier, at renaming the view, and keeps it).
+from a view builds the new table, drops the view and then fails at the rename, which leaves the
+model without a relation until its next run (v1 fails earlier, at renaming the view, and keeps
+it).
 Use `on_table_exists: drop` or `replace` for Delta models. `skip` works too: it never renames,
 keeps an existing table, and drops a view first, so a switch works on Delta.
 
@@ -854,7 +855,7 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 - The ROW order check covers the ROW elements of ARRAY and MAP fields; its known limits are in
   Part 4, FEATURES.md and MIGRATION.md.
 - `skip` mode works on Delta Lake, and a `rename`-mode switch from a view on Delta leaves no
-  relation, which differs from v1.
+  relation until the next run, which differs from v1.
 - The S2 text names the unit-test comparisons that still hide a difference, and its test gaps.
 - A decimal `query_timeout` must be quoted; Part 1, MIGRATION.md and the docs-site draft say so.
 - The umbrella and Part 4 evidence give the suite of the final run: 98 tests, 97 pass, and the
