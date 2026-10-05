@@ -186,8 +186,9 @@ update the Commit column. The `trino/p*` branches (local and on the fork) and th
 
 S1 and S2 fix bugs in code that every adapter uses. They use no Trino code, so they go upstream
 as small "Fixes" PRs of their own, each with cross-adapter tests. Part 2 needs them at run
-time: S1 to show uuid values as text, and S2 to compare Trino `decimal` and `timestamp(3)`
-values in unit tests.
+time: S1 to show uuid values as text, and S2 to compare the values of Trino `decimal(p)` with
+p ≤ 18, `timestamp(1)` to `timestamp(6)` (with or without time zone), `tinyint`, `smallint`,
+`time` and `varbinary` columns in unit tests.
 
 "Needs first" lists the parts that must be on `main` first, or that the PR must include (see
 Option A). On `main`, `backend_of(Trino)` is `todo!("Trino")`, so the Trino code of Parts 2,
@@ -300,6 +301,17 @@ and each passed fmt, `cargo check --all-targets` and the tests of its crates the
   - S2, `.changes/unreleased/Fixes-20261004-173311.yaml`: "Fix unit tests passing despite
     mismatched values in columns such as small integers, Decimal32/64, millisecond and
     microsecond timestamps, time, binary and map columns, and NULL against a value"
+- **Two commit messages to complete** on their PR branches with `git commit --amend` (the
+  record commits keep the reviewed text):
+  - Part 2 names only S1 as a run-time need. Add after its uuid paragraph: "Unit tests detect
+    mismatches in decimal(p<=18), timestamp(1-6) [with time zone], tinyint, smallint, time and
+    varbinary columns only with "fix(dbt-tasks-sa): compare unit-test values of Arrow types
+    without a formatting arm"."
+  - Part 4 says "Each change for dbt v2 is marked `v2:` in the macro files". Write "Each
+    behavior change", and add that `dbt_project.yml` (quoted version) and `adapters.sql` (v1's
+    header comment removed) have unmarked edits and that `macros/relations.sql` is new. The
+    dbt-trino line of `crates/dbt-loader/src/dbt_macro_assets/README.md` says "dbt v2 changes
+    are marked `v2:` in each file"; correct it in the same amend.
 
 **One PR (Option B):** Parts 0 to 5 on one branch, without S1 and S2, which are separate PRs
 in both options:
@@ -603,15 +615,24 @@ builder, SQL type metadata key, seed column naming and the microbatch event-time
 
 Each change links the v1 code that it mirrors.
 
-**Shared files, Trino-only behavior:** `BaseRelation::resolve_component` (dbt-schemas),
-`build_standard` (Exasol's `build_exasol`, renamed) and the microbatch filter arm shared with
-Exasol. Other adapters behave as before. The fixes for every adapter are in S1 and S2.
+**Shared code, Trino-only behavior:**
+- `BaseRelation::resolve_component` (dbt-schemas)
+- `build_standard` (Exasol's `build_exasol`, renamed)
+- arms shared with Exasol: the microbatch filter, and the `DATE` and `TIMESTAMP` literals of
+  `SqlLiteralFormatter::format_date` and `format_datetime`
+- the Trino arms of the unit-test fixture code in dbt-tasks-sa (`renderable/unit_test.rs`)
+- the seed column-name strategy in dbt-df-providers (`infer_seed_column_name_strategy`)
+
+Other adapters behave as before. The fixes for every adapter are in S1 and S2.
 
 **Needs S1 and S2 at run time:** without S1, a uuid value in `run_query`, an enforced contract
 or a unit test crashes dbt. With S1, these paths show the canonical text; `dbt show` still
-prints a uuid as 32 hex digits. Without S2, unit tests do not compare the `decimal` and
-`timestamp(3)` values that adbc-drivers/trino returns as `Decimal32`, `Decimal64` and
-millisecond timestamps.
+prints a uuid as 32 hex digits. Without S2, unit tests do not compare the values of
+`decimal(p)` with p ≤ 18, `timestamp(1)` to `timestamp(6)` (with or without time zone),
+`tinyint`, `smallint`, `time` and `varbinary` columns: adbc-drivers/trino returns them as Arrow
+types without a formatting arm (`Decimal32`, `Decimal64`, millisecond and microsecond
+timestamps, `Int8`, `Int16`, `Time32`, `Time64`, `BinaryView`), so both sides show
+`[unsupported]`, and a mismatch passes.
 
 ### Part 3a — `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter`
 
@@ -696,7 +717,8 @@ v2 relation framework) is entirely my own work.
   - incremental strategies `append`, `merge`, `delete+insert` and `microbatch`, as in v1
   - a materialized-view full refresh uses `CREATE OR REPLACE MATERIALIZED VIEW`, so the old view
     stays if the new definition fails
-  - seed types match v1 (`INTEGER`, `DOUBLE`, bare `TIMESTAMP`)
+  - seed types match v1 (`INTEGER`, `DOUBLE`, bare `TIMESTAMP`); whole numbers beyond the
+    `INTEGER` range, which v1 could not load, become `BIGINT`
 - **Nested ROW schema sync:** `adapter.diff_nested_column_types`, a generic struct diff in
   `dbt-adapter-sql`. New fields keep the source order, and a missing nested struct is added as
   one field. Trino matches `ROW` fields by position, so if the fields of a `ROW` column, or of a
@@ -708,8 +730,17 @@ v2 relation framework) is entirely my own work.
   (`dbt-adapter/src/catalog_relation.rs`) has a Trino arm that fails when a model sets
   `catalog_name`, with the same message as `properties()`. It is needed because
   `generate_database_name` calls `build_catalog_relation` at parse time, before any macro of
-  this package runs. A generic error for every adapter without catalog integrations would work
-  too, if you prefer it. No shared `dbt-adapters` macros are changed.
+  this package runs. For that guard, `CatalogRelation::get_model_config_value` gets a Trino arm
+  that reads Trino model configs from `config`, because Trino has no adapter attribute;
+  without it, the guard never sees `catalog_name`. Other adapters are unchanged. A generic error
+  for every adapter without catalog integrations would work too, if you prefer it. No shared
+  `dbt-adapters` macros are changed.
+- **No default catalog relation:** dbt-trino v1's default catalog integration returns a
+  `trino_default` relation; Trino has none in v2 yet. So a custom macro that calls
+  `adapter.build_catalog_relation(...)` without `catalog_name` gets the shared
+  `Internal Error: build_relation_catalog cannot be invoked by an adapter Trino`, as other
+  adapters without catalog integrations do. The built-in macros call it only when
+  `catalog_name` is set.
 
 **Known limit (Delta Lake on a Hive metastore):** Trino cannot rename managed Delta tables
 there, so `rename` mode fails on Delta: a table rerun fails at the rename, and a switch from a
@@ -782,3 +813,5 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   a new `pr/` branch with cherry-picks at PR time, and Option B leaves out S1 and S2.
 - The section 7 marking covers only the files that come from dbt-trino. It names your own work
   in them, including two unmarked edits, and `macros/relations.sql`, which is new.
+- The Part 2 and Part 4 texts name every shared-code change, Part 2 names all the unit-test
+  types that need S2, and two commit messages get their missing facts on the PR branches.

@@ -90,7 +90,10 @@ Its limits:
 
 Per-model `client_tags` / `http_headers` query routing (dbt-trino 1.10) and `catalogs.yml`
 catalog integrations are not available yet. A model with `catalog_name` stops with an error
-that says so; without `catalog_name`, `storage_uri` sets the table `location`, as in v1.
+that says so; without `catalog_name`, `storage_uri` sets the table `location`, as in v1. A
+custom macro that calls `adapter.build_catalog_relation(...)` without `catalog_name` fails with
+`Internal Error: build_relation_catalog cannot be invoked by an adapter Trino`: v1 returns its
+default `trino_default` catalog relation, and v2 has no default for Trino yet.
 
 Two YAML details apply to `profiles.yml` and `dbt_project.yml`:
 
