@@ -160,6 +160,7 @@ support them. dbt stops with an error that names the option:
   - `merge`, `delete+insert`, `microbatch` and snapshots need Iceberg or Delta Lake.
   - Hive tables support `append`.
   - Materialized views need the Iceberg connector.
+  - Changes to the fields of `ROW` columns (`sync_nested_columns`) need the Iceberg connector.
 - **Delta Lake on a Hive metastore** cannot rename tables or views, so the default
   `on_table_exists: rename` fails there. Set `on_table_exists: replace` or `drop` for Delta
   models. `skip` also works: it never renames, keeps an existing table as it is, and drops a
@@ -168,6 +169,15 @@ support them. dbt stops with an error that names the option:
   quoted. dbt matches relation names without regard to case.
 - **Model configs** match dbt-trino: `properties`, `on_table_exists`, `view_security`,
   `views_enabled`, `sync_nested_columns`, `grace_period`, `file_format` and `table_format`.
+- **Nested `ROW` columns.** With `sync_nested_columns: true`, an incremental model adds new
+  `ROW` fields in the model's order. Trino matches `ROW` fields by position, so if the table's
+  fields are then in another order than the model's, for example after a new field in the
+  middle of a `ROW`, dbt stops and asks for `--full-refresh`. With
+  `on_schema_change: sync_all_columns`, Iceberg applies a new field order in the `ROW` elements
+  of an `ARRAY` or `MAP` field as a type change of that field and keeps each value in its
+  field; Delta Lake and Hive refuse it, and the run fails. If the same change also removes a
+  field and needs a type change that Iceberg cannot make, Iceberg removes the field and then
+  fails: run the model with `--full-refresh`.
 
 ## Limitations
 

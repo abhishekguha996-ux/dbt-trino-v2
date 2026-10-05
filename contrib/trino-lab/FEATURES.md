@@ -80,12 +80,14 @@ table gets the same location, which Iceberg refuses (the same in dbt-trino v1).
 ⁴ Delta needs `column_mapping_mode = 'name'` to drop or rename columns.
 
 ⁵ The order check covers a ROW column, the ROWs nested in it, and the ROW elements of its ARRAY
-and MAP fields (the last ones in a loader test and in live checks, see
-[TEST-RESULTS.md](TEST-RESULTS.md#redgreen-checks-of-the-follow-ups)). With `sync_all_columns`,
-fields that are already in another order than in the model stop the run before any `ALTER`,
-and the table stays as it is. On Iceberg, this is stricter than v1 for the ROW elements of ARRAY
-and MAP fields: v1 applies such a reorder as a type change of the field, which Iceberg accepts,
-and v2 asks for `--full-refresh` (an [open review finding](UPSTREAM.md#follow-ups)). A
+and MAP fields (the last ones in Rust unit tests and in live checks, see
+[TEST-RESULTS.md](TEST-RESULTS.md#nested-row-order-checks)). It runs after the `ALTER`
+statements. With `sync_all_columns`, a new field order in the ROW elements of an ARRAY or MAP
+field is a type change of that field, as in v1 (`SET DATA TYPE`): Iceberg applies it and keeps
+each value in its field; Delta and Hive refuse it (`NOT_SUPPORTED`), so the run fails and the
+table does not change. If the same change also removes a field and needs a type change that
+Iceberg cannot make, Iceberg drops the field and then fails, so the table needs a
+`--full-refresh`. With `append_new_columns`, such a reorder asks for `--full-refresh`. A
 top-level `ARRAY(ROW)` or `MAP(ROW)` column is not diffed field by field, as in v1, so a
 reordered element ROW there is not detected.
 
