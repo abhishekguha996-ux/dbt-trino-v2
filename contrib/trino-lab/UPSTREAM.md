@@ -37,9 +37,10 @@ own. You may submit it separately from your own contributions. You must give the
 details of its source and license, and mark it conspicuously as "Submitted on behalf of a
 third-party: [named here]". Part 4 vendors the dbt-trino v1.10.5 macros, which are Starburst's
 work. So the Part 4 PR text (see [PR descriptions](#pr-descriptions)) and the
-[umbrella issue](#umbrella-issue) carry this marking, and they say that only the changes marked
-`v2:` are your own work. If dbt Labs wants the vendored files in a separate submission, offer
-them as a separate commit or PR.
+[umbrella issue](#umbrella-issue) carry this marking, and they name your own work: in the
+vendored files, the provenance headers, the changes marked `v2:` and two small unmarked edits;
+and the one new file, `macros/relations.sql`, which is not from dbt-trino. If dbt Labs wants the
+vendored files in a separate submission, offer them as a separate commit or PR.
 
 **Why you need it.** dbt Labs merges code only from contributors with a signed CLA. On every
 pull request, `cla-bot` checks the author. Without a CLA it writes "CLA has not been signed by
@@ -377,9 +378,13 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > **Merge plan:** (the Option A table from UPSTREAM.md, with the PR numbers)
 >
 > **Submitted on behalf of a third-party: Starburst Data, Inc. (dbt-trino v1.10.5, commit
-> 6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6, Apache-2.0).** This covers
-> `crates/dbt-loader/src/dbt_macro_assets/dbt-trino/**`; only the changes marked `v2:` are my own
-> work.
+> 6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6, Apache-2.0).** This covers the files under
+> `crates/dbt-loader/src/dbt_macro_assets/dbt-trino/` that come from dbt-trino's
+> `dbt/include/trino/`: all of them except `macros/relations.sql`. In those files, my own work is
+> the provenance headers, the changes marked `v2:`, and two edits without a marker:
+> `dbt_project.yml` quotes `version: '1.0'` and drops a blank line, and `macros/adapters.sql`
+> drops v1's three header comment lines. `macros/relations.sql` (rename and replace macros for
+> the v2 relation framework) is entirely my own work.
 >
 > **Evidence:** jaffle-shop-classic (+incremental, +snapshot) builds clean on Trino 483
 > (Iceberg, Delta Lake, Hive on S3), plus a functional suite of about 100 tests, all
@@ -649,15 +654,22 @@ the `get_relation` row mapping, a NULL table owner, the transactions feature, th
 **Solution:**
 
 **Submitted on behalf of a third-party: Starburst Data, Inc. (dbt-trino v1.10.5, commit
-6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6, Apache-2.0).** This covers
-`crates/dbt-loader/src/dbt_macro_assets/dbt-trino/**`; only the changes marked `v2:` are my own
-work.
+6b097c4eb3cbdd5eb6a0bc0209796626aebf32c6, Apache-2.0).** This covers the files under
+`crates/dbt-loader/src/dbt_macro_assets/dbt-trino/` that come from dbt-trino's
+`dbt/include/trino/`: all of them except `macros/relations.sql`. In those files, my own work is
+the provenance headers, the changes marked `v2:`, and two edits without a marker:
+`dbt_project.yml` quotes `version: '1.0'` and drops a blank line, and `macros/adapters.sql`
+drops v1's three header comment lines. `macros/relations.sql` (rename and replace macros for the
+v2 relation framework) is entirely my own work.
 
 - **Vendored macros:** "Copyright 2021 Starburst Data, Inc."; v1.10.6 has no macro changes.
-  Provenance is in each file header and in `dbt_macro_assets/README.md`. Each v2 change is
-  marked `v2:`. The main ones:
+  Provenance is in the header of each `.sql` file and in `dbt_macro_assets/README.md`. Each
+  behavior change for dbt v2 is marked `v2:`; the two edits named above change no behavior and
+  have no marker. One new file, `macros/relations.sql`, is not vendored: it holds the rename and
+  replace macros that the v2 relation framework calls, and it qualifies each rename target with
+  catalog and schema. The main `v2:` changes:
   - `information_schema('<view>')`, `%s` binding literals, escaping of interpolated literals,
-    catalog SQL types, and renames qualified with catalog and schema
+    and catalog SQL types
   - the catalog, schema and table literals of the metadata queries are lowercase, because Trino
     stores these names in lowercase
   - a private `trino_quoted_literal` macro instead of a `trino__string_literal` override, so
@@ -768,3 +780,5 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 
 - The PR series names the real record branches and commits. They are stacked, so each PR gets
   a new `pr/` branch with cherry-picks at PR time, and Option B leaves out S1 and S2.
+- The section 7 marking covers only the files that come from dbt-trino. It names your own work
+  in them, including two unmarked edits, and `macros/relations.sql`, which is new.
