@@ -503,15 +503,32 @@ UTF-8, and as hex otherwise.
 - millisecond timestamps, `Date64`, `Time32` and `Time64`
 - `Int8`, `Int16` and unsigned integers; `Decimal32`, `Decimal64` and `Decimal256` (BigQuery
   `BIGNUMERIC`)
-- dictionary and binary columns
+- dictionary, map and binary columns
 - NULL against a value, in all of these columns
 
 A unit test that passed only because both sides showed `[unsupported]` can now fail. The
 changie entry says so.
 
+**Known limits:** this change touches only the fallback. Some arms that `main` already has
+still hide a difference, and the fallback has one gap of its own:
+- `Timestamp` in nanoseconds compares only to the whole second. adbc-drivers/trino returns
+  Trino `timestamp(7)` to `timestamp(12)` this way: on `timestamp(9)`, a 1 ns and a 1 ms
+  difference pass, and a 1 s difference fails (checked live).
+- `Decimal128` loses the sign between -1 and 0: -0.50 and 0.50 both show `0.50` (checked live
+  on a Trino `decimal(20, 2)` column). This affects, for example, BigQuery `NUMERIC` and Trino
+  `decimal(p)` with p > 18.
+- `Float32` and `Float64` compare with one decimal place: 1.23 and 1.24 both show `1.2`
+  (checked live on a Trino `double` column).
+- The fallback formats a NULL inside a map value as an empty string (the default
+  `FormatOptions`), so `{a: NULL}` and `{a: ''}` compare equal.
+
+A follow-up can send these types through the Arrow display with a `NULL` text, so that every
+unit and sign compares exactly.
+
 **Tests:** cross-adapter cases for `Int16`, `Decimal64`, millisecond timestamps,
 `Timestamp(µs, UTC)`, `Time64`, NULL against a value, and `BinaryView` values as text and as
-hex.
+hex. They check that a mismatch is found; no test yet checks that equal values of these types
+still match, and dictionary and map columns have no test.
 
 ### Part 1 — `feat(trino): profile schema and ADBC authentication`
 
@@ -832,3 +849,4 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   Part 4, FEATURES.md and MIGRATION.md.
 - `skip` mode works on Delta Lake, and a `rename`-mode switch from a view on Delta leaves no
   relation, which differs from v1.
+- The S2 text names the unit-test comparisons that still hide a difference, and its test gaps.

@@ -95,7 +95,7 @@ anything [incremental].
 |---|---|
 | Generic and singular data tests, `store_failures` | Tested [features, more, projects] |
 | `sql_header` (e.g. `set session`) on tables and views | Tested on Memory [basic] |
-| Unit tests | Tested [features] |
+| Unit tests | Tested [features]. dbt v2 compares the values by their text, for every adapter: `timestamp(7)`–`timestamp(12)` only to the whole second, `double` and `real` to one decimal place, and `decimal(p)` with p > 18 without the sign between -1 and 0 |
 | Unit-test fixture types: dbt-trino v1's type cases (integer, varchar, boolean, date, timestamp, timestamp with time zone, decimal) and `decimal(10,2)` | Tested on Memory and Iceberg [features] |
 | `uuid` values in `run_query`, enforced contracts and unit tests | Tested on Memory and Iceberg [features]. `dbt show` prints a uuid as 32 hex digits (the Arrow display of `FixedSizeBinary(16)`); these paths show the canonical text |
 | Grants (Hive `sql-standard`) with revoke on change, also in a mixed-case schema; the user that runs dbt keeps its own privileges | Tested [features] |
