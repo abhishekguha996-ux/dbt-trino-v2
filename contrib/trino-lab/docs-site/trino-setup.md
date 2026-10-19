@@ -53,7 +53,8 @@ the file that you install.
 dbt looks in these places, in this order:
 
 1. Each folder in the `ADBC_DRIVER_PATH` environment variable.
-2. The first `lib/` folder in the folder of the `dbt` executable or up to five folders above it.
+2. The `dbt/` folder in the first `lib/` folder in the folder of the `dbt` executable or up to
+   five folders above it (for example `lib/dbt/` next to `bin/`).
 3. `/opt/homebrew/lib` (macOS on Apple silicon).
 4. Your ADBC driver folder: `~/.config/adbc/drivers` on Linux,
    `~/Library/Application Support/ADBC/Drivers` on macOS.

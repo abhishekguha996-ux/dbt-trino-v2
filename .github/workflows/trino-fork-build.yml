@@ -132,7 +132,7 @@ jobs:
             VERSION="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
           fi
           PKG="dbt-trino-v2-${VERSION}-${{ matrix.target }}"
-          mkdir -p "dist/$PKG/bin" "dist/$PKG/lib" /tmp/driver
+          mkdir -p "dist/$PKG/bin" "dist/$PKG/lib/dbt" /tmp/driver
           cp "target/${{ matrix.target }}/release/dbt" "dist/$PKG/bin/dbt"
           strip "dist/$PKG/bin/dbt" || true
           DRIVER="trino_${{ matrix.driver_platform }}_${TRINO_DRIVER_VERSION}.tar.gz"
@@ -140,9 +140,9 @@ jobs:
           sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
           echo "${{ matrix.driver_sha256 }}  /tmp/${DRIVER}" | sha256 -c -
           tar -xzf "/tmp/${DRIVER}" -C /tmp/driver
-          cp "/tmp/driver/${{ matrix.library }}" "dist/$PKG/lib/"
-          cp /tmp/driver/LICENSE "dist/$PKG/lib/LICENSE.adbc-driver-trino"
-          cp /tmp/driver/NOTICE "dist/$PKG/lib/NOTICE.adbc-driver-trino" || true
+          cp "/tmp/driver/${{ matrix.library }}" "dist/$PKG/lib/dbt/"
+          cp /tmp/driver/LICENSE "dist/$PKG/lib/dbt/LICENSE.adbc-driver-trino"
+          cp /tmp/driver/NOTICE "dist/$PKG/lib/dbt/NOTICE.adbc-driver-trino" || true
           cp LICENSE "dist/$PKG/LICENSE"
           cp contrib/trino-lab/INSTALL.md "dist/$PKG/INSTALL.md"
           printf 'ref: %s\ncommit: %s\nadbc driver: adbc-drivers/trino go/%s\nworkflow run: %s\n' \

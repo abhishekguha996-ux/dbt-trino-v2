@@ -8,14 +8,14 @@ Each archive contains:
 
 ```
 bin/dbt                          dbt v2 OSS CLI with the Trino adapter
-lib/libadbc_driver_trino.so      ADBC Trino driver go/v0.5.3 (adbc-drivers/trino, Apache-2.0);
+lib/dbt/libadbc_driver_trino.so  ADBC Trino driver go/v0.5.3 (adbc-drivers/trino, Apache-2.0);
                                  libadbc_driver_trino.dylib in the macOS archive
-lib/LICENSE.adbc-driver-trino, lib/NOTICE.adbc-driver-trino
+lib/dbt/LICENSE.adbc-driver-trino, lib/dbt/NOTICE.adbc-driver-trino
 LICENSE, INSTALL.md
 BUILD-INFO                       the git ref, the commit SHA and the workflow run of the build
 ```
 
-`dbt` finds the driver in the `lib/` folder next to `bin/`. Nothing is downloaded at run time.
+`dbt` finds the driver in the `lib/dbt/` folder: `dbt/` in the `lib/` folder next to `bin/`. Nothing is downloaded at run time.
 
 ## Get an archive
 
@@ -87,7 +87,7 @@ The binary and the driver are not signed. A web browser marks downloads with the
 command removes the mark. `curl` and `gh` do not set it.
 
 Do not link `bin/dbt` into another folder (for example `ln -s ~/opt/dbt-trino-v2/bin/dbt
-/opt/homebrew/bin/dbt`). On macOS, dbt then looks for `lib/` next to the link and does not
+/opt/homebrew/bin/dbt`). On macOS, dbt then looks for `lib/dbt/` next to the link and does not
 find the driver. Put the archive's `bin/` folder on `PATH` instead, or set `ADBC_DRIVER_PATH`
 (see below).
 
@@ -97,8 +97,9 @@ dbt loads the driver by its name, `adbc_driver_trino`. It looks in these places,
 order:
 
 1. Each folder in `ADBC_DRIVER_PATH` (a `:`-separated list).
-2. The first `lib/` folder in the folder of the `dbt` executable or up to five folders above
-   it. For the archive, this is the `lib/` folder next to `bin/`.
+2. The `dbt/` folder in the first `lib/` folder in the folder of the `dbt` executable or up to
+   five folders above it. For the archive, this is `lib/dbt/`, next to `bin/`. dbt looks only
+   in the first `lib/` folder that it finds, also when that folder has no `dbt/` folder.
 3. `/opt/homebrew/lib` (macOS on Apple silicon only).
 4. Your ADBC driver folder: `~/.config/adbc/drivers` on Linux (`$XDG_CONFIG_HOME/adbc/drivers`
    if that is set), `~/Library/Application Support/ADBC/Drivers` on macOS.
