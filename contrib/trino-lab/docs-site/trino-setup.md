@@ -39,8 +39,8 @@ dbt does not download this driver. Install it yourself; dbt then loads it by its
 the file that you install.
 
 1. Download the archive for your platform from the
-   [driver releases](https://github.com/adbc-drivers/trino/releases) (tested: `go/v0.5.3`),
-   for example `trino_linux_amd64_v0.5.3.tar.gz`. Archives exist for `linux_amd64`,
+   [driver releases](https://github.com/adbc-drivers/trino/releases) (tested: `go/v0.6.1`),
+   for example `trino_linux_amd64_v0.6.1.tar.gz`. Archives exist for `linux_amd64`,
    `linux_arm64`, `macos_arm64` and `windows_amd64`; this page covers Linux and macOS.
 2. Compare the archive's SHA-256 checksum with the digest that the release page shows for it.
 3. Extract the library and put it in a folder where dbt looks for it:
@@ -133,7 +133,7 @@ trino:
 | `session_properties` | Trino session properties, for example `{query_max_run_time: 2h}` |
 | `client_tags` | List of client tags for resource groups |
 | `query_timeout` | Client-side timeout: a positive number of seconds, such as `300` or `1.5`, or a duration such as `300s`, `30m` or `1h`. Without it, the driver stops a query after 10 hours |
-| `timezone` | Session time zone. Driver `go/v0.5.3` does not send it yet, so the session uses the server's time zone |
+| `timezone` | Session time zone. Without it, the session uses the time zone of the machine that runs dbt. Needs driver `go/v0.6.1` or later; older drivers use the server's time zone |
 | `prepared_statements_enabled` | Accepted for dbt-trino compatibility; it has no visible effect |
 | `retries` | Accepted for dbt-trino compatibility and ignored |
 

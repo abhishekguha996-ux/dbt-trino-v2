@@ -8,7 +8,7 @@ Each archive contains:
 
 ```
 bin/dbt                          dbt v2 OSS CLI with the Trino adapter
-lib/dbt/libadbc_driver_trino.so  ADBC Trino driver go/v0.5.3 (adbc-drivers/trino, Apache-2.0);
+lib/dbt/libadbc_driver_trino.so  ADBC Trino driver go/v0.6.1 (adbc-drivers/trino, Apache-2.0);
                                  libadbc_driver_trino.dylib in the macOS archive
 lib/dbt/LICENSE.adbc-driver-trino, lib/dbt/NOTICE.adbc-driver-trino
 LICENSE, INSTALL.md
@@ -200,4 +200,5 @@ export ADBC_DRIVER_PATH="$PWD/lib"
 
 The driver archives are on the
 [adbc-drivers/trino releases page](https://github.com/adbc-drivers/trino/releases) (tested:
-`go/v0.5.3`).
+`go/v0.6.1` and `go/v0.5.3`; do not use `go/v0.6.0`, which fails to connect when `timezone` is
+set).

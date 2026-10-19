@@ -11,8 +11,9 @@ git history of this file.
 On 19 October the PR branches and `trino-pr/integration` were rebased onto dbt-labs `main`
 112adf8. The Rust gates ran on that base (see [Gates on 112adf8](#gates-on-112adf8)), and the
 fork workflow ran the live suite on Linux x86_64 with a release binary built on it (see
-[Fork run on 112adf8](#fork-run-on-112adf8-linux-x86_64)). The other live records below are on
-7bbd974. Their commits (892256e, e7a1675, 8809833) are on the
+[Fork run on 112adf8](#fork-run-on-112adf8-linux-x86_64)). The suite also ran on macOS with
+driver go/v0.6.1 (see [Driver go/v0.6.1](#driver-gov061-on-112adf8-macos-arm64)). The other
+live records below are on 7bbd974. Their commits (892256e, e7a1675, 8809833) are on the
 local branch `trino-pr/integration-7bbd974`, the tip of `trino-pr/integration` before the
 rebase.
 
@@ -82,6 +83,31 @@ tested `trino-pr/integration` b197698 on 19 October 2026, 18:30–19:38 UTC. All
   tests, 1 snapshot and 3 seeds, 32 of 32 succeed in each of the two runs; on Hive (no
   snapshot), 31 of 31 succeed in each run.
 - The nested ROW order checks were not part of this run; they are on 7bbd974 only.
+
+## Driver go/v0.6.1 on 112adf8 (macOS ARM64)
+
+On 19 October 2026, 22:09–22:15 UTC, with ADBC driver go/v0.6.1 instead of go/v0.5.3.
+
+| Item | Value |
+|---|---|
+| dbt binary | `cargo build -p dbt-sa-cli --bin dbt` (debug profile) at `trino-pr/integration` 167156d (the `crates/` of b197698), native macOS ARM64; `dbt-oss 2.0.8`; sha256 `3dacf9d6de0f8b178c085ad50d6761e03d7dcc3a0d2813e2e2b10d34c1e61d58` |
+| ADBC driver | adbc-drivers/trino `go/v0.6.1`, macos_arm64 archive (sha256 `dec1d6d6c898d89ddf52e389e9a766029f484417fe37d846a73736d2f28c4120`, as on the release page); `libadbc_driver_trino.dylib` sha256 `7166902d3b88e8076629d63c6bccff70fc52ac2970aae1acfdb9d6030b9029bb`; loaded with `ADBC_DRIVER_PATH` |
+| Stack | the lab stack (Trino 483, Hive metastore 3.1.3, RustFS) |
+| Harness | `SCHEMA_PREFIX=zz_d61_`, a private `HOME` and `TMPDIR` |
+
+| Check | Result |
+|---|---|
+| Functional suite | 98 tests, 97 pass; the Ctrl-C test is an expected failure (the query keeps running after Ctrl-C) |
+| jaffle-shop-classic fd7bfac | clean twice on Iceberg and Delta Lake (32 of 32) and on Hive (31 of 31) |
+| `timezone: America/New_York` | `current_timezone()` is `America/New_York` (go/v0.5.3: `UTC`) |
+| no `timezone` | the client's time zone (`America/New_York`; `Asia/Kolkata` with `TZ=Asia/Kolkata`); go/v0.5.3: the server's (`UTC`) |
+| `run_query` of a MAP | `map[a:1]`, as on go/v0.5.3 |
+| `run_query` of a ROW | `{[x y] [1 a] true}` (go/v0.5.3: `[1 a]`) |
+| `run_query` of TIME WITH TIME ZONE | `0000-01-01 01:02:03.456 +0500 +0500`, as on go/v0.5.3 |
+| `run_query` of `approx_set(1)` | `[2 12 1 0 128 3 68 0]` as text (go/v0.5.3: `type not supported: "HyperLogLog"`) |
+| `run_query` of a uuid and an ARRAY | correct, as on go/v0.5.3 |
+
+The nested ROW order checks did not run with go/v0.6.1.
 
 ## Rust checks (7bbd974)
 
@@ -279,17 +305,18 @@ The run also confirmed these limits of 892256e, on the memory catalog unless nam
 
 ## Known limits
 
-**ADBC driver go/v0.5.3** (issue texts in [DRIVER-ISSUES.md](DRIVER-ISSUES.md), not filed
+**ADBC driver go/v0.6.1** (issue texts in [DRIVER-ISSUES.md](DRIVER-ISSUES.md), not filed
 yet):
 
 - Ctrl-C stops dbt, but a running query continues on Trino until it ends or until Trino
   abandons it after `query.client.timeout` (5 minutes by default).
-- `timezone` is ignored: the session uses the Trino server's time zone.
 - No client certificates (mTLS), OAuth 2.0, impersonation (`impersonation_user`), custom HTTP
   headers (`http_headers`) or Kerberos ticket cache: dbt stops with an error that names the
   option.
-- `map`, `row` and `time with time zone` values in `run_query` are Go-formatted text, and
-  HyperLogLog values fail.
+- `map`, `row`, `time with time zone` and HyperLogLog values in `run_query` are Go-formatted
+  text.
+- With go/v0.5.3, `timezone` is also ignored (the session uses the Trino server's time zone),
+  and HyperLogLog values fail.
 
 **dbt v2 shared code:**
 

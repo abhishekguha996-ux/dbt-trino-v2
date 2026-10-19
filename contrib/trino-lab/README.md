@@ -57,7 +57,7 @@ TRINO_CATALOGS=iceberg python3 -m unittest test_incremental -v
 python3 ../scripts/stack.py down
 ```
 
-dbt finds a `lib/` folder near its executable by itself, so `ADBC_DRIVER_PATH` is a safeguard.
+dbt finds a `lib/dbt/` folder near its executable by itself, so `ADBC_DRIVER_PATH` is a safeguard.
 It matters for a debug build that sits below an `arrow-adbc` checkout: that build loads drivers
 from the checkout instead of `lib/` and runs `make` there first.
 [INSTALL.md](INSTALL.md#how-dbt-finds-the-driver) lists every place where dbt looks for the

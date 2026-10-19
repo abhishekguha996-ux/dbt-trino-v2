@@ -22,7 +22,7 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | `session_properties` | Tested [features, more] |
 | `roles` | Unit-tested; every lab profile sets `roles: {hive: admin}`, but no test checks the role |
 | `client_tags` | Unit-tested; sent in [auth], but no test checks the tags |
-| `timezone` | Accepted; driver go/v0.5.3 does not send it (see MIGRATION.md) |
+| `timezone` | Supported with driver go/v0.6.1: sets the session time zone; without it, the client's time zone. Driver go/v0.5.3 ignores it (see MIGRATION.md) |
 | `catalog` alias for `database` | Unit-tested (`profiles.rs`) |
 | `prepared_statements_enabled`, `retries` | Accepted (see MIGRATION.md) |
 | `http_headers`, `impersonation_user` | Not supported by the driver: clear error (unit-tested) |

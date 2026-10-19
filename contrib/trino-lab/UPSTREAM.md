@@ -560,7 +560,7 @@ Post it in `#adapter-ecosystem` and tag Hope Watson. Send it only after you have
 and filed the driver issues.
 
 > Hi @Hope Watson — I've built a Phase 1 Trino adapter for dbt v2 on the adbc-drivers/trino
-> driver (go/v0.5.3), following the adapter guide. jaffle-shop-classic plus an incremental
+> driver (go/v0.6.1), following the adapter guide. jaffle-shop-classic plus an incremental
 > model and a snapshot builds clean on Trino 483 with Iceberg and Delta Lake, and on Hive (no
 > snapshot, since Hive can't MERGE). It keeps the dbt-trino v1 profile fields and vendors the
 > dbt-trino v1.10.5 macros (unchanged in v1.10.6). Code and evidence:
@@ -604,9 +604,9 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > `dbt-adbc`) is welcome; whether `AdapterType::Starburst` should use the Trino implementation;
 > how to hand over a Trino target for your CI.
 >
-> **Known driver limits** (adbc-drivers/trino#…, #…): cancel does not stop a running query;
-> go/v0.5.3 ignores `timezone`, so the session uses the server's time zone; no mTLS, OAuth
-> 2.0, impersonation, custom HTTP headers or Kerberos ticket cache.
+> **Known driver limits** (adbc-drivers/trino#…, #…), on go/v0.6.1: cancel does not stop a
+> running query; no mTLS, OAuth 2.0, impersonation or custom HTTP headers. The Kerberos ticket
+> cache is not supported by the adapter yet.
 
 Put the real issue numbers into the last paragraph. Until the driver issues are filed, write
 "to be reported to adbc-drivers/trino" instead.
@@ -738,8 +738,8 @@ column: -0.50 against 0.50 fails with the diff `0.50 -> -0.50`.
   serialized. v1 profiles load unchanged, except for the differences listed below.
 - `dbt-auth/src/trino` follows the crate's pattern: `parse_auth` builds a `TrinoAuthIR`
   (`None`, `Ldap`, `Jwt`, `Kerberos`), which `apply` and `apply_connection_args` turn into
-  trino-go-client v0.333.0 DSN options, wired with `auth_configure_pipeline!` like the Exasol
-  and ClickHouse modules:
+  trino-go-client DSN options (v0.333.0 in driver go/v0.5.3, v1.3.0 in go/v0.6.1), wired
+  with `auth_configure_pipeline!` like the Exasol and ClickHouse modules:
   - methods `none`, `ldap`, `jwt` and `kerberos` (keytab)
   - `roles`, `session_properties`, `client_tags`, `timezone` and `query_timeout`
   - `cert`: a CA bundle, `true`, or `false` (`SSLVerification=NONE`, which the ADBC driver
@@ -766,9 +766,9 @@ column: -0.50 against 0.50 fails with the diff `0.50 -> -0.50`.
 - `cert` with `http_scheme: http` fails; v1 ignores it.
 - TLS: without `cert`, v2 verifies the server certificate. v1 verifies only when
   `require_certificate_validation` is on (default False). This is deliberate and documented.
-- `timezone` is sent, but trino-go-client reads it only from v0.336.0 on. Driver go/v0.5.3 pins
-  v0.333.0, so the session keeps the server's time zone; the driver's `main` branch already
-  uses v0.336.0.
+- `timezone` is sent. Driver go/v0.6.1 applies it, and without it sends the client's time
+  zone, as v1 does. Driver go/v0.5.3 (trino-go-client v0.333.0) ignores it, so the session
+  keeps the server's time zone; go/v0.6.0 fails to connect with it (adbc-drivers/trino#124).
 - Without `query_timeout`, a query stops after 10h; v1 has no client-side query timeout.
 
 **Notes for review:**
@@ -1119,3 +1119,18 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   `trino-pr/integration-7bbd974`.
 - The fork archive holds the driver in `lib/dbt/`, because upstream f666b6c changed the
   folder that dbt searches next to its executable. INSTALL.md and the docs-site draft say so.
+
+## Changes to this kit after the driver go/v0.6.1 check (19 October)
+
+- The adapter was tested with ADBC driver go/v0.6.1 on 112adf8: the functional suite and the
+  jaffle-shop build pass as with go/v0.5.3 (see
+  [TEST-RESULTS.md](TEST-RESULTS.md#driver-gov061-on-112adf8-macos-arm64)).
+- `timezone` works with go/v0.6.1, so the timezone driver issue is not filed, and the Part 1
+  text, the Slack message and the umbrella issue no longer name it as a limit.
+- DRIVER-ISSUES.md gives the go/v0.6.1 state of each issue: cancel, OAuth 2.0, impersonation
+  and HTTP headers are unchanged; mTLS has a new cause; the Kerberos ticket cache needs a
+  test first; the ROW and HyperLogLog values changed.
+- The fork workflow ships go/v0.6.1. The last fork run (39303130529) still used go/v0.5.3, so
+  the next push of `trino-pr/integration` is the first Linux run with go/v0.6.1.
+- The Part 1 code comment in `crates/dbt-auth/src/trino/mod.rs` still names go/v0.5.3 and
+  trino-go-client v0.333.0. It is unchanged on the `pr/` branches.
