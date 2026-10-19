@@ -1,4 +1,4 @@
-# Test results — 5 October 2026
+# Test results — 5 October 2026, with the gates on 112adf8 of 19 October
 
 Experimental adapter; this is a test record, not a production-readiness claim. The current
 record is the run of 5 October on `trino-pr/integration` 8809833: the series with the
@@ -7,6 +7,12 @@ follow-ups F1 and F2. F3 is left out, and 8809833 reverts it (see
 run on e7a1675, with F3, and the run on 892256e, without the follow-ups. The 27 September
 record (72 tests, before the rebase onto dbt-labs `main` 7bbd974 and the review fixes) is in the
 git history of this file.
+
+On 19 October the PR branches and `trino-pr/integration` were rebased onto dbt-labs `main`
+112adf8. Only the Rust gates ran on that base (see [Gates on 112adf8](#gates-on-112adf8)). The
+live records below are all on 7bbd974. Their commits (892256e, e7a1675, 8809833) are on the
+local branch `trino-pr/integration-7bbd974`, the tip of `trino-pr/integration` before the
+rebase.
 
 ## What was tested
 
@@ -23,7 +29,35 @@ git history of this file.
 | Auth | HTTP without authentication (port 8080); HTTPS (port 8443) with a password file and JWT (RS256), signed by the lab CA |
 | Harness | Python 3.13.7; `SCHEMA_PREFIX=zz_f5_`, a private `HOME` and `TMPDIR`; 5 October 2026, 15:36–15:46 EDT |
 
-## Rust checks
+## Gates on 112adf8
+
+On 19 October 2026, with dbt Labs' CI gates (`.github/workflows/ci.yml`) on dbt-labs `main`
+112adf8 (`112adf89c`, 18 October 2026), native macOS ARM64. The branches are listed in
+[UPSTREAM.md](UPSTREAM.md#pr-branches-on-112adf8).
+
+| Branch | Tip | `cargo fmt --all --check` | `cargo clippy --workspace --all-targets -- -D warnings` | `cargo nextest run --workspace`: run / passed / failed |
+|---|---|---|---|---|
+| `pr/p0` | 584285f | pass | pass | 7,208 / 7,182 / 26 |
+| `pr/s1` | a0851b3 | pass | pass | 7,209 / 7,183 / 26 |
+| `pr/s2` | 6fc4960 | pass | pass | 7,214 / 7,188 / 26 |
+| `pr/p1` | 202707d | pass | pass | 7,234 / 7,208 / 26 |
+| `pr/p2` | 97f9da5 | pass | pass | 7,249 / 7,223 / 26 |
+| `pr/p3a` | 577d8e4 | pass | pass | 7,207 / 7,181 / 26 |
+| `pr/p3b` | 73b7c86 | pass | pass | 7,244 / 7,218 / 26 |
+| `pr/p4` | afb2785 | pass | pass | 7,287 / 7,261 / 26 |
+| `pr/p5` | 06b7f01 | pass | pass | 7,241 / 7,215 / 26 |
+| `pr/series` | 6480cf3 | pass | pass | 7,305 / 7,279 / 26 |
+| `trino-pr/integration` | 8a1dde4 (its `crates/` are those of the tip) | pass | pass | 7,314 / 7,288 / 26 |
+| `main` (no Trino code) | 112adf8 | pass | pass | 7,207 / 7,181 / 26 |
+
+The 26 failures are the same tests on every branch and on `main`: the ClickHouse record/replay
+tests `adapter::clickhouse::adapters_clickhouse_*` of `dbt-sa-adapter-tests` (upstream b6e966a,
+14 October). Each fails with `[InvalidConfig (dbt1005)]: I/O error: No such file or directory`.
+The cause is this host: `HydrateProfilesTask` (`crates/dbt-test-utils/src/task/profiles.rs`)
+reads the `test` profile in `~/.dbt/profiles.yml` when the test project has no
+`profiles.yml`, and this Mac has no `~/.dbt/profiles.yml`. dbt Labs' CI supplies that file.
+
+## Rust checks (7bbd974)
 
 On `trino-pr/series` 6f3a4a3, with dbt Labs' CI gates (`.github/workflows/ci.yml`):
 
@@ -273,14 +307,23 @@ yet):
 
 ## Not tested
 
+- **A live run on 112adf8.** No functional suite, jaffle-shop build or nested ROW check ran on
+  a binary built on 112adf8; all live results above are on 7bbd974. The fork run of
+  `trino-pr/integration` is the first live run on 112adf8. It is also the first test of the
+  archive layout with the driver in `lib/dbt/`.
+
 - **Linux x86_64 at run time.** The fork workflow builds the Linux archive and runs the
   functional suite and the jaffle-shop build with it, but it has not run on this series and
   its follow-ups, because nothing is pushed yet. Only the macOS ARM64 debug build ran live; no
   release build (`--release`) ran live.
-- **The workspace gates with the follow-ups.** fmt, clippy and nextest ran on the four crates
-  that the follow-ups and the revert of F3 change, and on each follow-up with the parts it
-  needs, but not on the whole workspace. They did not run on Parts 2, 3b, 4 and 5 with F2 in
-  their Part 1, as the [per-PR recipe](UPSTREAM.md#how-to-open-a-pr-from-the-fork) cuts them.
+- **The workspace gates on 7bbd974 with the follow-ups.** On 7bbd974, fmt, clippy and nextest
+  ran on the four crates that the follow-ups and the revert of F3 change, and on each
+  follow-up with the parts it needs, but not on the whole workspace. On 112adf8 the
+  workspace gates ran on every `pr/` branch, Parts 2, 3b, 4 and 5 with F2 in their Part 1
+  included (see [Gates on 112adf8](#gates-on-112adf8)).
+- **The 26 ClickHouse record/replay tests** stop at setup on every branch, because this host
+  has no `~/.dbt/profiles.yml` (see [Gates on 112adf8](#gates-on-112adf8)). They have no Trino
+  code.
 - **F1's NULL text with a Trino value:** no Trino value reaches that code (see the
   [red/green notes](#redgreen-checks-of-the-follow-ups)); it has Rust unit tests only.
 - **dbt-trino v1 with a reorder in the ROW elements of an `ARRAY` or `MAP` field:** what v1

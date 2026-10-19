@@ -3,15 +3,19 @@
 Nothing in this fork has been submitted to dbt-labs/dbt. This is the kit for when you decide
 to. The local clone's `upstream` remote has its push URL disabled on purpose. The facts about
 dbt Labs and GitHub in this file were checked on 3 and 4 October 2026, and the follow-ups on 4
-and 5 October.
+and 5 October. On 19 October the PR branches were cut on dbt-labs `main` 112adf8, and
+`trino-pr/integration` was rebased onto it (see [PR branches on 112adf8](#pr-branches-on-112adf8)).
 
 Before the first PR, in this order:
 
-1. Sign the [Individual CLA](#individual-cla).
+1. Sign the [Individual CLA](#individual-cla). **Done:** signed and submitted on 19 October
+   2026 as `abhishekguha996-ux`.
 2. Push `trino-pr/integration` to your fork, check that the fork workflow's Linux x86_64 run
-   passes, and add it to [TEST-RESULTS.md](TEST-RESULTS.md). The review fixes are done:
-   TEST-RESULTS.md records the checks and the live results of the series (6f3a4a3, on
-   dbt-labs `main` 7bbd974) and of its [follow-ups](#follow-ups) F1 and F2 with commit SHAs.
+   passes, and add it to [TEST-RESULTS.md](TEST-RESULTS.md). It is now on dbt-labs `main`
+   112adf8. The review fixes are done: TEST-RESULTS.md records the checks and the live results
+   of the series (6f3a4a3, on dbt-labs `main` 7bbd974) and of its [follow-ups](#follow-ups) F1
+   and F2 with commit SHAs, and the gates of the `pr/` branches on 112adf8. No live run has
+   used a binary built on 112adf8 yet: the fork run is the first.
 3. File the [driver issues](DRIVER-ISSUES.md).
 4. Post the [Slack message](#slack-message) and ask which [PR shape](#pr-shape-options) the
    maintainers want.
@@ -160,33 +164,37 @@ It is the same form that `cla-bot` links on a PR. The explanation is on
 Each part is one commit. Together they change only `crates/` and `.changes/`, and so do the
 [follow-ups](#follow-ups). `contrib/` and `.github/` are fork-only and never go upstream.
 
-| Part | Record branch | Commit | Commit subject | Needs first |
-|---|---|---|---|---|
-| 0 | `trino-pr/p0-redact-access-token` | `1901220` | `fix(adbc): redact accessToken URI parameters in Builder Debug output` | — |
-| S1 | `trino-pr/s1-agate-uuid-text` | `5ee10b4` | `fix(dbt-agate): show arrow.uuid columns as text instead of panicking` | — |
-| S2 | `trino-pr/s2-unit-test-compare` | `5733d42` | `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm` | — |
-| 1 | `trino-pr/p1-profile-auth` | `ab2948f` | `feat(trino): profile schema and ADBC authentication` | — |
-| 2 | `trino-pr/p2-types-relations` | `8943170` | `feat(trino): relations, columns, SQL types and literals` | 1 |
-| 3a | `trino-pr/p3a-generic-metadata-adapter` | `7de6091` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
-| 3b | `trino-pr/p3b-metadata` | `10a13da` | `feat(trino): metadata adapter, relation listing and get_relation` | 1, 3a |
-| 4 | `trino-pr/p4-macros-materializations` | `8f0bf3b` | `feat(trino): dbt-trino macro package, materializations and model configs` | 1, 2 |
-| 5 | `trino-pr/p5-init-wizard` | `6f3a4a3` | `feat(trino): dbt init profile wizard` | 1 |
+| Part | Record branch | Commit | PR branch on 112adf8 | Commit subject | Needs first |
+|---|---|---|---|---|---|
+| 0 | `trino-pr/p0-redact-access-token` | `1901220` | `pr/p0` `584285f` | `fix(adbc): redact accessToken URI parameters in Builder Debug output` | — |
+| S1 | `trino-pr/s1-agate-uuid-text` | `5ee10b4` | `pr/s1` `a0851b3` | `fix(dbt-agate): show arrow.uuid columns as text instead of panicking` | — |
+| S2 | `trino-pr/s2-unit-test-compare` | `5733d42` | `pr/s2` `6fc4960` | `fix(dbt-tasks-sa): compare unit-test values of Arrow types without a formatting arm` | — |
+| 1 | `trino-pr/p1-profile-auth` | `ab2948f` | `pr/p1` `202707d` | `feat(trino): profile schema and ADBC authentication` | — |
+| 2 | `trino-pr/p2-types-relations` | `8943170` | `pr/p2` `97f9da5` | `feat(trino): relations, columns, SQL types and literals` | 1 |
+| 3a | `trino-pr/p3a-generic-metadata-adapter` | `7de6091` | `pr/p3a` `577d8e4` | `refactor(adapter): share the Exasol metadata adapter as GenericMetadataAdapter` | — |
+| 3b | `trino-pr/p3b-metadata` | `10a13da` | `pr/p3b` `73b7c86` | `feat(trino): metadata adapter, relation listing and get_relation` | 1, 3a |
+| 4 | `trino-pr/p4-macros-materializations` | `8f0bf3b` | `pr/p4` `afb2785` | `feat(trino): dbt-trino macro package, materializations and model configs` | 1, 2 |
+| 5 | `trino-pr/p5-init-wizard` | `6f3a4a3` | `pr/p5` `06b7f01` | `feat(trino): dbt init profile wizard` | 1 |
 
 **The record branches are stacked.** They start at dbt-labs `main` 7bbd974
 (`7bbd974389dbd08da3ece92396ecdd0c8f99719c`, 2 October 2026), and each one holds all the parts
 above it in the table: `trino-pr/p1-profile-auth`, for example, holds Part 0, S1, S2 and
 Part 1. `trino-pr/series` holds all nine parts and equals `trino-pr/p5-init-wizard` (6f3a4a3).
-`trino-pr/integration` is `trino-pr/series` plus the fork-only `contrib/` and `.github/`
-commits and the follow-ups F1 and F2 (it also holds F3 and the revert of F3). These branches
-record the reviewed commits. Never open a PR from them: Copybara mirrors the whole diff against
-`main`, so a PR from `trino-pr/p1-profile-auth` would also carry Part 0, S1 and S2. At PR time,
-cut a new branch for each PR from the latest `main` (see
-[How to open a PR from the fork](#how-to-open-a-pr-from-the-fork)).
+These branches record the reviewed commits. Never open a PR from them: Copybara mirrors the
+whole diff against `main`, so a PR from `trino-pr/p1-profile-auth` would also carry Part 0, S1
+and S2. Open each PR from its `pr/` branch, which is cut on the latest `main` (see
+[PR branches on 112adf8](#pr-branches-on-112adf8)).
+
+`trino-pr/integration` is dbt-labs `main` 112adf8 with Part 0, S1, S2 (with F1) and Parts 1 to
+5 (Part 1 with F2), with the same code as `pr/series`, `pr/s1` and `pr/s2` together, then the
+fork-only `contrib/` and `.github/` commits. F3 and its revert are not on it. Its tip before
+the rebase, 3a8beec on 7bbd974, is kept as the local branch `trino-pr/integration-7bbd974`; it
+holds the commits that the live records in TEST-RESULTS.md name (892256e, e7a1675, 8809833).
 
 Each part was also checked alone: on 7bbd974, with only the parts in its "Needs first" column
 before it, it applies cleanly and passes `cargo fmt`, `cargo check --all-targets` and the tests
-of its crates (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)). If you rebase the series,
-update the Commit column. The `trino/p*` branches (local and on the fork) and the local
+of its crates (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks-7bbd974)). If `main` moves again,
+rebase the `pr/` branches and update the "PR branch on 112adf8" column. The `trino/p*` branches (local and on the fork) and the local
 `trino-ready/*` branches hold earlier rounds: do not open PRs from them either.
 
 S1 and S2 fix bugs in code that every adapter uses. They use no Trino code, so they go upstream
@@ -255,7 +263,7 @@ parts keep the reviewed commits. The follow-ups have plain `fix(…)` subjects, 
 
 F1 and F2 were each checked alone on 7bbd974, with the parts in their "Needs first" column
 before them: each applies cleanly and passes `cargo fmt`, `cargo check --all-targets`, clippy
-and the tests of its crates (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)). The live run
+and the tests of its crates (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks-7bbd974)). The live run
 of `trino-pr/integration` e7a1675 checked each fix against the binary of 892256e (see
 [TEST-RESULTS.md](TEST-RESULTS.md#redgreen-checks-of-the-follow-ups)), and 8809833 has the
 same F1 and F2 code. F1's NULL text has a Rust test only, because no Trino value reaches that
@@ -299,6 +307,54 @@ the Option B PR from it: cut `pr/series` with the seven Trino parts only (see
 carry all earlier parts.
 
 ## How to open a PR from the fork
+
+### PR branches on 112adf8
+
+On 19 October all PR branches were cut, as the recipe below describes, on dbt-labs `main`
+112adf8 (`112adf89c`, 18 October 2026). They are local branches of the clone; nothing is
+pushed. Each is one PR, in the form that it goes upstream:
+
+| PR | Branch | Tip | Commits on `main` |
+|---|---|---|---|
+| Part 0 | `pr/p0` | `584285f` | Part 0 |
+| S1 | `pr/s1` | `a0851b3` | S1 |
+| S2 | `pr/s2` | `6fc4960` | S2 with F1, as one commit |
+| Part 1 | `pr/p1` | `202707d` | Part 1 with F2, as one commit |
+| Part 2 | `pr/p2` | `97f9da5` | Parts 1 and 2 |
+| Part 3a | `pr/p3a` | `577d8e4` | Part 3a |
+| Part 3b | `pr/p3b` | `73b7c86` | Parts 1, 3a and 3b |
+| Part 4 | `pr/p4` | `afb2785` | Parts 1, 2 and 4 (without F3) |
+| Part 5 | `pr/p5` | `06b7f01` | Parts 1 and 5 |
+| Option B | `pr/series` | `6480cf3` | Parts 0, 1, 2, 3a, 3b, 4 and 5 |
+
+What is done on them:
+
+- F1 is folded into S2 and F2 into Part 1. F3 is left out.
+- The changie entries and commit messages are completed as
+  "Commit messages to complete" in [the recipe](#the-recipe) says. The S1 and S2 entries have
+  `issue: ""`: set the bug issue numbers when you have them.
+- Conflicts with `main` are resolved. Part 1: `connection_keys_for` in `profiles.rs` keeps
+  upstream's Spark keys and adds the Trino keys. Part 2: the tests that upstream and Part 2 add
+  to the same files are both kept. Part 3b: the Trino listing code takes
+  `&mut ConnectionGuard<'_>` after upstream 5f5010f, and the external-Iceberg check is
+  upstream's `skips_schema_wide_listing`. Part 4: the dbt-trino line of the macro assets
+  README sits next to upstream's new entry. Part 5: the wizard is in
+  `dbt_profile_schemas::ProfileSetup::setup` after upstream 794eb2a; its commit message names
+  this.
+- Part 2 uses `ErrorCode::from(e.kind())` instead of `ErrorCode::Generic`, because upstream
+  `AGENTS.md` (df7e7fa) forbids `ErrorCode::Generic` in new code.
+- Gates on each branch: `cargo fmt --all --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings` pass;
+  `cargo nextest run --workspace` passes except 26 ClickHouse record/replay tests, which fail
+  in the same way on `main` 112adf8 (see [TEST-RESULTS.md](TEST-RESULTS.md#gates-on-112adf8)).
+
+To open a PR, push its branch and run `gh pr create` as in the examples below. If `main` has
+moved, rebase the branch first, for example
+`git rebase --onto upstream/main 112adf89c pr/p2`, and run the gates again. The cherry-pick
+recipe below is how these branches were cut. Use it again only to cut a branch from the record
+commits.
+
+### The recipe
 
 Your plan (clone, make a branch, port the code, open a PR) is right, with these details:
 
@@ -369,7 +425,7 @@ Checked on 5 October in a scratch clone, with 7bbd974 as `upstream/main`: each o
 applies cleanly. In merge-plan order, the nine PR commits give the code of
 `trino-pr/followups~1` (the series with F1 and F2), which is also the code in the `crates/` of
 `trino-pr/integration`; only the changie entries differ. The gates ran on each part alone, and
-on each follow-up with the parts it needs (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks)),
+on each follow-up with the parts it needs (see [TEST-RESULTS.md](TEST-RESULTS.md#rust-checks-7bbd974)),
 but not on Parts 2, 3b, 4 and 5 with F2 in their Part 1. Run them on each `pr/` branch before
 the push.
 
@@ -461,13 +517,14 @@ git cherry-pick 6f3a4a3                                   # Part 5
 ```
 
 Part 2 and Part 4 are not the last commit of this branch, so complete their messages right
-after their cherry-picks. Part 4 is `8f0bf3b` as it is, because F3 is left out. This set
-applies cleanly to 7bbd974 (checked on 5 October), but the gates have not run on it yet. Do not
+after their cherry-picks. Part 4 is `8f0bf3b` as it is, because F3 is left out. `pr/series`
+(`6480cf3`) is this branch on 112adf8, and it passes the gates (see
+[PR branches on 112adf8](#pr-branches-on-112adf8)). Do not
 push `trino-pr/series` itself as the PR branch: it also holds S1 and S2, and it has no
 follow-ups.
 
-**Live Linux evidence:** push `trino-pr/integration` (the series, the fork-only `contrib/` and
-`.github/` commits, and the follow-ups F1 and F2; F3 is reverted there) to the fork. The fork
+**Live Linux evidence:** push `trino-pr/integration` (the series on 112adf8 with F1 and F2
+folded in, and the fork-only `contrib/` and `.github/` commits) to the fork. The fork
 workflow then runs the Rust checks, builds the Linux and macOS archives, and runs the
 functional suite and the jaffle-shop build with the Linux binary. Only `trino-pr/integration`
 has the fork workflow, so a push of a `trino-pr/*` record branch or a `pr/` branch starts no
@@ -1048,3 +1105,17 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 - TEST-RESULTS.md records the live run of 8809833, with nested ROW order checks; the e7a1675
   and 892256e runs are short earlier records.
 - FEATURES.md, MIGRATION.md and the docs-site draft give the nested ROW behavior without F3.
+
+## Changes to this kit after the rebase onto 112adf8 (19 October)
+
+- The CLA is signed (19 October 2026).
+- The PR branches `pr/p0` to `pr/p5` and `pr/series` are cut on dbt-labs `main` 112adf8, with
+  F1 and F2 folded in, the changie entries and commit messages completed, and the conflicts
+  with `main` resolved. "PR branches on 112adf8" lists them, and the series table has their
+  SHAs.
+- Part 2 uses `ErrorCode::from(e.kind())` instead of `ErrorCode::Generic` (upstream
+  `AGENTS.md`, df7e7fa).
+- `trino-pr/integration` is rebased onto 112adf8. The old tip, 3a8beec, is the local branch
+  `trino-pr/integration-7bbd974`.
+- The fork archive holds the driver in `lib/dbt/`, because upstream f666b6c changed the
+  folder that dbt searches next to its executable. INSTALL.md and the docs-site draft say so.
