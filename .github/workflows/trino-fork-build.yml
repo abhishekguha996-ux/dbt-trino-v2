@@ -39,7 +39,7 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  TRINO_DRIVER_VERSION: v0.5.3
+  TRINO_DRIVER_VERSION: v0.6.1
 
 jobs:
   test:
@@ -87,7 +87,7 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             driver_platform: linux_amd64
-            driver_sha256: 49ddc23d5d2e2f859bee554c005aff2ecbc17312a9f25c84d14834b68fbeecfc
+            driver_sha256: ef08f9eb404eb6264a8006713ba339118e0d03fcbf228fe270f8245da68a23be
             library: libadbc_driver_trino.so
     steps: &build-steps
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # actions/checkout@v4
@@ -173,7 +173,7 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             driver_platform: macos_arm64
-            driver_sha256: 21f855023ced861ae3fec1b785ca0e5d313e9748425cae651ff131c65b070c15
+            driver_sha256: dec1d6d6c898d89ddf52e389e9a766029f484417fe37d846a73736d2f28c4120
             library: libadbc_driver_trino.dylib
     steps: *build-steps
 
