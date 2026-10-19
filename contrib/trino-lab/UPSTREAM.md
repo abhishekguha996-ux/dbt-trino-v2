@@ -11,11 +11,11 @@ Before the first PR, in this order:
 1. Sign the [Individual CLA](#individual-cla). **Done:** signed and submitted on 19 October
    2026 as `abhishekguha996-ux`.
 2. Push `trino-pr/integration` to your fork, check that the fork workflow's Linux x86_64 run
-   passes, and add it to [TEST-RESULTS.md](TEST-RESULTS.md). It is now on dbt-labs `main`
-   112adf8. The review fixes are done: TEST-RESULTS.md records the checks and the live results
-   of the series (6f3a4a3, on dbt-labs `main` 7bbd974) and of its [follow-ups](#follow-ups) F1
-   and F2 with commit SHAs, and the gates of the `pr/` branches on 112adf8. No live run has
-   used a binary built on 112adf8 yet: the fork run is the first.
+   passes, and add it to [TEST-RESULTS.md](TEST-RESULTS.md). **Done:** b197698, on dbt-labs
+   `main` 112adf8, was pushed on 19 October 2026, and fork run 39303130529 passed (see
+   [TEST-RESULTS.md](TEST-RESULTS.md#fork-run-on-112adf8-linux-x86_64)). TEST-RESULTS.md also
+   records the live results of the series on 7bbd974, of its [follow-ups](#follow-ups) F1 and
+   F2, and the gates of the `pr/` branches on 112adf8.
 3. File the [driver issues](DRIVER-ISSUES.md).
 4. Post the [Slack message](#slack-message) and ask which [PR shape](#pr-shape-options) the
    maintainers want.

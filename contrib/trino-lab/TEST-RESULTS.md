@@ -9,8 +9,10 @@ record (72 tests, before the rebase onto dbt-labs `main` 7bbd974 and the review 
 git history of this file.
 
 On 19 October the PR branches and `trino-pr/integration` were rebased onto dbt-labs `main`
-112adf8. Only the Rust gates ran on that base (see [Gates on 112adf8](#gates-on-112adf8)). The
-live records below are all on 7bbd974. Their commits (892256e, e7a1675, 8809833) are on the
+112adf8. The Rust gates ran on that base (see [Gates on 112adf8](#gates-on-112adf8)), and the
+fork workflow ran the live suite on Linux x86_64 with a release binary built on it (see
+[Fork run on 112adf8](#fork-run-on-112adf8-linux-x86_64)). The other live records below are on
+7bbd974. Their commits (892256e, e7a1675, 8809833) are on the
 local branch `trino-pr/integration-7bbd974`, the tip of `trino-pr/integration` before the
 rebase.
 
@@ -56,6 +58,30 @@ tests `adapter::clickhouse::adapters_clickhouse_*` of `dbt-sa-adapter-tests` (up
 The cause is this host: `HydrateProfilesTask` (`crates/dbt-test-utils/src/task/profiles.rs`)
 reads the `test` profile in `~/.dbt/profiles.yml` when the test project has no
 `profiles.yml`, and this Mac has no `~/.dbt/profiles.yml`. dbt Labs' CI supplies that file.
+
+## Fork run on 112adf8 (Linux x86_64)
+
+The fork workflow run
+[39303130529](https://github.com/abhishekguha996-ux/dbt-trino-v2/actions/runs/39303130529)
+tested `trino-pr/integration` b197698 on 19 October 2026, 18:30–19:38 UTC. All jobs passed.
+
+| Job | Result |
+|---|---|
+| Rust checks (Trino crates) | pass |
+| Build (x86_64-unknown-linux-gnu), release | pass: `dbt-trino-v2-trino-pr-integration-b197698-x86_64-unknown-linux-gnu.tar.gz` |
+| Build (aarch64-apple-darwin), release | pass (the archive was built, not run) |
+| Live suite (Linux x86_64) | pass: the functional suite ran 98 tests, 97 pass, and the Ctrl-C test is an expected failure (the driver's cancel limit); jaffle-shop-classic fd7bfac builds clean twice on each catalog |
+
+- **Binary:** the Linux release archive, checked against its sha256 file. `dbt --version`
+  prints `dbt-oss 2.0.8`. `BUILD-INFO` names `trino-pr/integration`, b197698 and driver
+  `go/v0.5.3`.
+- **Driver path:** nothing sets `ADBC_DRIVER_PATH`, so dbt loaded the driver from the
+  archive's `lib/dbt/` folder.
+- **Stack:** the lab stack of `stack/compose.yaml` (Trino 483, Hive metastore, S3).
+- **jaffle-shop-classic** (+incremental, +snapshot): on Iceberg and Delta Lake, 6 models, 22
+  tests, 1 snapshot and 3 seeds, 32 of 32 succeed in each of the two runs; on Hive (no
+  snapshot), 31 of 31 succeed in each run.
+- The nested ROW order checks were not part of this run; they are on 7bbd974 only.
 
 ## Rust checks (7bbd974)
 
@@ -307,15 +333,10 @@ yet):
 
 ## Not tested
 
-- **A live run on 112adf8.** No functional suite, jaffle-shop build or nested ROW check ran on
-  a binary built on 112adf8; all live results above are on 7bbd974. The fork run of
-  `trino-pr/integration` is the first live run on 112adf8. It is also the first test of the
-  archive layout with the driver in `lib/dbt/`.
-
-- **Linux x86_64 at run time.** The fork workflow builds the Linux archive and runs the
-  functional suite and the jaffle-shop build with it, but it has not run on this series and
-  its follow-ups, because nothing is pushed yet. Only the macOS ARM64 debug build ran live; no
-  release build (`--release`) ran live.
+- **The nested ROW order checks on 112adf8.** They ran live on 7bbd974 only. The fork run
+  does not include them.
+- **The macOS release archive at run time.** The fork run built it but did not run it. On
+  macOS, only the debug build on 7bbd974 ran live.
 - **The workspace gates on 7bbd974 with the follow-ups.** On 7bbd974, fmt, clippy and nextest
   ran on the four crates that the follow-ups and the revert of F3 change, and on each
   follow-up with the parts it needs, but not on the whole workspace. On 112adf8 the
