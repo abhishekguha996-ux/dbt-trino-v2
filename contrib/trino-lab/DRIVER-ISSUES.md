@@ -178,7 +178,8 @@ with certificate authentication.
 
 Load the client certificate and key in `buildTLSConfig` (set `tls.Config.Certificates`) and
 remove the parameters from the DSN, as the driver already does for `SSLCert`, so that the
-`SSLClientCert*` and `SSLClientKey*` parameters of trino-go-client work through the driver. The Trino JDBC driver and the Python client support this (dbt-trino v1:
+`SSLClientCert*` and `SSLClientKey*` parameters of trino-go-client work through the driver.
+The Trino JDBC driver and the Python client support client certificates (dbt-trino v1:
 `method: certificate` with `client_certificate` and `client_private_key`).
 
 **Context**
@@ -196,6 +197,10 @@ Title: `Support Trino OAuth 2.0 external authentication`
 The driver supports a static access token (`accessToken`), but not Trino's OAuth 2.0 flow, in
 which the server answers `401` with `WWW-Authenticate: Bearer x_redirect_server="...",
 x_token_server="..."`, the user opens the redirect URL, and the client polls the token server.
+
+**Version**
+
+go/v0.6.1 (the source has no such option).
 
 **Request**
 
@@ -221,6 +226,10 @@ With password authentication, trino-go-client uses the URI user for both HTTP Ba
 authentication and the `X-Trino-User` header. There is no way to authenticate as one user and
 run queries as another (Trino impersonation, allowed by the cluster's access control).
 
+**Version**
+
+go/v0.6.1 (the source has no such option).
+
 **Request**
 
 A URI parameter or ADBC option for the session user that sets `X-Trino-User`, like the Trino
@@ -240,6 +249,10 @@ Title: `Allow extra HTTP headers on Trino requests`
 
 Some deployments put a gateway or proxy in front of Trino that needs extra request headers.
 The driver has no option to add HTTP headers.
+
+**Version**
+
+go/v0.6.1 (the source has no such option).
 
 **Request**
 
@@ -315,34 +328,33 @@ types differ from dbt-trino v1.
 
 ## TIME WITH TIME ZONE and HyperLogLog values
 
-Title: `TIME WITH TIME ZONE values are Go-formatted text; HyperLogLog fails`
+Title: `TIME WITH TIME ZONE and HyperLogLog values are Go-formatted text`
 
 ~~~markdown
 **Summary**
 
 TIME WITH TIME ZONE values come back as the `arrow.opaque` extension type over `string`, and
 the text is Go's `%v` formatting of the decoded value (sqlwrapper's default inserter).
-HyperLogLog values fail. MAP and ROW values have the same formatting; #19 covers them.
+HyperLogLog values failed with go/v0.5.3; with go/v0.6.1 they come back as the text of a Go
+byte list. MAP and ROW values have the same formatting; #19 covers them.
 
-**Steps to reproduce** (Python, adbc-driver-manager 1.12.0)
+**Environment**
 
-```python
-cur.execute(sql); print(cur.fetch_arrow_table())
-```
+go/v0.5.3 with adbc-driver-manager 1.12.0 (Python, `cur.execute(sql);
+print(cur.fetch_arrow_table())`), and go/v0.6.1 through the `run_query` of the dbt v2 Trino
+adapter, which shows the text of each value. Trino 483.
 
-| Query | Arrow type | Value |
+| Query | go/v0.5.3: Arrow type and value | go/v0.6.1: value |
 |---|---|---|
-| `select time '01:02:03.456 +05:00'` | `arrow.opaque[..., type_name=TIME WITH TIME ZONE]` | `0000-01-01 01:02:03.456 +0500 +0500` |
-| `select approx_set(1)` | error | `type not supported: "HyperLogLog"` |
-| `select uuid '12151fd2-...'` | `arrow.uuid` | correct |
+| `select time '01:02:03.456 +05:00'` | `arrow.opaque[..., type_name=TIME WITH TIME ZONE]`, `0000-01-01 01:02:03.456 +0500 +0500` | `0000-01-01 01:02:03.456 +0500 +0500` |
+| `select approx_set(1)` | error `type not supported: "HyperLogLog"` | `[2 12 1 0 128 3 68 0]` |
+| `select uuid '12151fd2-...'` | `arrow.uuid`, correct | correct |
 
 **Expected**
 
 - TIME WITH TIME ZONE as ISO 8601 text (`01:02:03.456+05:00`) or a typed representation.
-- HyperLogLog, P4HyperLogLog, QDigest, TDigest and SetDigest as binary. With go/v0.6.1
-  (checked on 19 October 2026 through dbt's `run_query`), `select approx_set(1)` no longer
-  fails, but the value is text of a Go byte list, `[2 12 1 0 128 3 68 0]`, not binary.
-  TIME WITH TIME ZONE is unchanged on go/v0.6.1.
+- HyperLogLog, P4HyperLogLog, QDigest, TDigest and SetDigest as binary, not as the text of a
+  Go byte list.
 - The type table in the driver docs lists UUID, MAP, ROW, JSON and TIME WITH TIME ZONE.
 
 **Context**
