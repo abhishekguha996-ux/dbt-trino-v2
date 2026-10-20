@@ -84,6 +84,17 @@ tested `trino-pr/integration` b197698 on 19 October 2026, 18:30–19:38 UTC. All
   snapshot), 31 of 31 succeed in each run.
 - The nested ROW order checks were not part of this run; they are on 7bbd974 only.
 
+### Fork run with driver go/v0.6.1
+
+The fork workflow run
+[39361917955](https://github.com/abhishekguha996-ux/dbt-trino-v2/actions/runs/39361917955)
+tested `trino-pr/integration` b161d7a on 20 October 2026, 02:59–03:38 UTC, with driver
+go/v0.6.1 in the archives. All jobs passed: the Rust checks, the Linux x86_64 and macOS
+release builds, and the live suite on Linux x86_64. `BUILD-INFO` names b161d7a and driver
+`go/v0.6.1`, and `dbt --version` prints `dbt-oss 2.0.8`. The functional suite ran 98 tests,
+97 pass, and the Ctrl-C test is an expected failure. jaffle-shop-classic fd7bfac builds clean
+twice on Iceberg and Delta Lake (32 of 32) and on Hive (31 of 31).
+
 ## Driver go/v0.6.1 on 112adf8 (macOS ARM64)
 
 On 19 October 2026, 22:09–22:15 UTC, with ADBC driver go/v0.6.1 instead of go/v0.5.3.

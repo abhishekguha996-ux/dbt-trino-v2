@@ -1130,7 +1130,7 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
 - DRIVER-ISSUES.md gives the go/v0.6.1 state of each issue: cancel, OAuth 2.0, impersonation
   and HTTP headers are unchanged; mTLS has a new cause; the Kerberos ticket cache needs a
   test first; the ROW and HyperLogLog values changed.
-- The fork workflow ships go/v0.6.1. The last fork run (39303130529) still used go/v0.5.3, so
-  the next push of `trino-pr/integration` is the first Linux run with go/v0.6.1.
+- The fork workflow ships go/v0.6.1. Fork run 39361917955 (b161d7a, 20 October) passed with
+  it on Linux x86_64 (see [TEST-RESULTS.md](TEST-RESULTS.md#fork-run-with-driver-gov061)).
 - The Part 1 code comment in `crates/dbt-auth/src/trino/mod.rs` still names go/v0.5.3 and
   trino-go-client v0.333.0. It is unchanged on the `pr/` branches.
