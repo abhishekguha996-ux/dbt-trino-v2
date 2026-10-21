@@ -316,16 +316,16 @@ The run also confirmed these limits of 892256e, on the memory catalog unless nam
 
 ## Known limits
 
-**ADBC driver go/v0.6.1** (issue texts in [DRIVER-ISSUES.md](DRIVER-ISSUES.md), not filed
-yet):
+**ADBC driver go/v0.6.1** (filed as adbc-drivers/trino #127 to #133 and a comment on #19; see
+[DRIVER-ISSUES.md](DRIVER-ISSUES.md)):
 
 - Ctrl-C stops dbt, but a running query continues on Trino until it ends or until Trino
-  abandons it after `query.client.timeout` (5 minutes by default).
-- No client certificates (mTLS), OAuth 2.0, impersonation (`impersonation_user`), custom HTTP
-  headers (`http_headers`) or Kerberos ticket cache: dbt stops with an error that names the
-  option.
-- `map`, `row`, `time with time zone` and HyperLogLog values in `run_query` are Go-formatted
-  text.
+  abandons it after `query.client.timeout` (5 minutes by default) (#127).
+- No client certificates (mTLS, #128), OAuth 2.0 (#129), impersonation (`impersonation_user`,
+  #130), custom HTTP headers (`http_headers`, #131) or Kerberos ticket cache: dbt stops with an
+  error that names the option.
+- `map`, `row` (#19), `time with time zone` and HyperLogLog (#132) values in `run_query` are
+  Go-formatted text.
 - With go/v0.5.3, `timezone` is also ignored (the session uses the Trino server's time zone),
   and HyperLogLog values fail.
 

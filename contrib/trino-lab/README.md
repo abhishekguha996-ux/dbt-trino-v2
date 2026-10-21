@@ -16,7 +16,7 @@ It is **not an official dbt Labs release** and has not been proposed upstream ye
 | [FEATURES.md](FEATURES.md) | Feature-by-feature status versus dbt-trino v1 and per connector |
 | [TEST-RESULTS.md](TEST-RESULTS.md) | What was tested, how, and the results |
 | [UPSTREAM.md](UPSTREAM.md) | The CLA, the PR plan and the PR texts for dbt-labs/dbt |
-| [DRIVER-ISSUES.md](DRIVER-ISSUES.md) | Issue texts for adbc-drivers/trino (not filed yet) |
+| [DRIVER-ISSUES.md](DRIVER-ISSUES.md) | Issue texts for adbc-drivers/trino and their issue numbers (#127 to #133, and a comment on #19) |
 
 ## Layout
 

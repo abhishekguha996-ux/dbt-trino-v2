@@ -74,8 +74,8 @@ Its limits:
 |---|---|
 | `method: none / ldap / jwt` | Supported |
 | `method: kerberos` | Supported with `keytab` + `principal` (`user@REALM`); `krb5_config`, then `KRB5_CONFIG`, then `/etc/krb5.conf` for the config file. No ticket cache: `keytab` is required. `hostname_override`, `force_preemptive`, `delegate` and `mutual_authentication` are not supported by the driver: dbt stops with an error unless they are unset, `false` or `disabled` |
-| `method: certificate`, `oauth`, `oauth_console`, `gssapi` | **Not supported** by the ADBC Trino driver; dbt stops with an error. Use `jwt` with a token instead of OAuth |
-| `http_headers`, `impersonation_user` | **Not supported** by the driver; dbt stops with an error that names the option (an empty value counts as unset, as in v1) |
+| `method: certificate`, `oauth`, `oauth_console`, `gssapi` | **Not supported**; dbt stops with an error. Use `jwt` with a token instead of OAuth. The ADBC Trino driver has no client certificates ([adbc-drivers/trino#128](https://github.com/adbc-drivers/trino/issues/128)) and no OAuth 2.0 ([adbc-drivers/trino#129](https://github.com/adbc-drivers/trino/issues/129)). For `gssapi` (a Kerberos ticket cache), driver go/v0.6.1 may have what is needed, but the adapter does not accept it yet |
+| `http_headers`, `impersonation_user` | **Not supported** by the driver ([adbc-drivers/trino#131](https://github.com/adbc-drivers/trino/issues/131), [adbc-drivers/trino#130](https://github.com/adbc-drivers/trino/issues/130)); dbt stops with an error that names the option (an empty value counts as unset, as in v1) |
 | `host` | **Host name only**, for example `trino.example.com`. A scheme, a port or a path (`https://trino.example.com`, `trino.example.com:8443`, `trino.example.com/x`) stops dbt with an error. v1 accepts a URL such as `https://trino.example.com:8443` and takes the scheme and the port from it; in v2, put the port in `port` and the scheme in `http_scheme` |
 | `cert` | **Default changed:** v2 verifies TLS certificates when `cert` is unset (v1 skipped verification unless `require_certificate_validation` was on). Set `cert: /path/to/ca.pem` for internal CAs, or `cert: false` to keep v1's behavior |
 | `cert` with `http_scheme: http` | **Now an error** ("Trino 'cert' requires http_scheme: https"), also for `cert: true` on a `method: none` profile. Remove `cert` from HTTP profiles |
@@ -149,7 +149,7 @@ These come from Trino itself, not the adapter:
 - **Interrupting a run:** with ADBC Trino driver go/v0.6.1, as with go/v0.5.3, Ctrl-C stops
   dbt, but a query already running keeps running until Trino abandons it after
   `query.client.timeout` (5 minutes by default). Set `session_properties: {query_max_run_time: ...}` as a guardrail. This is a
-  driver issue; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md#cancel-does-not-stop-a-running-query).
+  driver issue: [adbc-drivers/trino#127](https://github.com/adbc-drivers/trino/issues/127).
 - **Microbatch** batches run sequentially. `concurrent_batches: true` logs a warning and is
   ignored: concurrent `DELETE` + `INSERT` batches conflict in Iceberg and Delta Lake commits
   ("Found new conflicting delete files"), even for non-overlapping time ranges.

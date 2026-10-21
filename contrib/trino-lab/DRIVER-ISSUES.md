@@ -1,11 +1,24 @@
-# Issues for adbc-drivers/trino (not filed yet)
+# Issues for adbc-drivers/trino
 
-These are ready-to-file issue texts for <https://github.com/adbc-drivers/trino/issues>. None of
-them is filed yet (19 October 2026); until they are, describe these limits as "to be reported",
-not "reported". The texts were checked again on 19 October with driver go/v0.6.1 (see
-[What changed in go/v0.6.1](#what-changed-in-gov061)).
+These are the issue texts for <https://github.com/adbc-drivers/trino/issues>. They were
+checked again on 19 October 2026 with driver go/v0.6.1 (see
+[What changed in go/v0.6.1](#what-changed-in-gov061)) and filed on 20 October 2026 as
+`abhishekguha996-ux`:
 
-Before you file:
+| Section | Filed as |
+|---|---|
+| Cancel does not stop a running query | [adbc-drivers/trino#127](https://github.com/adbc-drivers/trino/issues/127) |
+| Client certificate (mTLS) authentication | [adbc-drivers/trino#128](https://github.com/adbc-drivers/trino/issues/128) |
+| OAuth 2.0 authentication | [adbc-drivers/trino#129](https://github.com/adbc-drivers/trino/issues/129) |
+| Session user (impersonation) | [adbc-drivers/trino#130](https://github.com/adbc-drivers/trino/issues/130) |
+| Custom HTTP headers | [adbc-drivers/trino#131](https://github.com/adbc-drivers/trino/issues/131) |
+| TIME WITH TIME ZONE and HyperLogLog values | [adbc-drivers/trino#132](https://github.com/adbc-drivers/trino/issues/132) |
+| Manifest name: trino vs adbc_driver_trino | [adbc-drivers/trino#133](https://github.com/adbc-drivers/trino/issues/133) |
+| MAP and ROW values | [adbc-drivers/trino#19 (comment)](https://github.com/adbc-drivers/trino/issues/19#issuecomment-6306250387) |
+| The timezone parameter | not filed: fixed in go/v0.6.1 |
+| Kerberos ticket cache | not filed: needs a live test with go/v0.6.1 first |
+
+The filing steps were:
 
 1. Search the open and closed issues again. On 19 October 2026 these issues were related:
    - #19 "Add support for more complex data types such as ARRAY, MAP, ROW", open since
@@ -21,7 +34,7 @@ Before you file:
 2. File one issue per section, except the comment for #19. Copy the text between the `~~~`
    lines.
 3. Afterwards, put the issue links into [UPSTREAM.md](UPSTREAM.md#umbrella-issue),
-   [MIGRATION.md](MIGRATION.md) and [FEATURES.md](FEATURES.md).
+   [MIGRATION.md](MIGRATION.md) and [FEATURES.md](FEATURES.md) (done on 20 October 2026).
 
 Tested versions: driver `go/v0.6.1` (15 October 2026; its `go.mod` pins trino-go-client
 v1.3.0 and driverbase-go `bb49cea`) and, for the first texts, `go/v0.5.3` (trino-go-client
@@ -55,6 +68,8 @@ and the suite shows no change.
 ## Cancel does not stop a running query
 
 Title: `AdbcStatementCancel returns OK but the Trino query keeps running`
+
+Filed as [adbc-drivers/trino#127](https://github.com/adbc-drivers/trino/issues/127).
 
 ~~~markdown
 **Summary**
@@ -155,6 +170,8 @@ the git history of this file.
 
 Title: `Support client certificate (mutual TLS) authentication`
 
+Filed as [adbc-drivers/trino#128](https://github.com/adbc-drivers/trino/issues/128).
+
 ~~~markdown
 **Summary**
 
@@ -191,6 +208,8 @@ dbt v2 Trino adapter: profiles with `method: certificate` fail today with a clea
 
 Title: `Support Trino OAuth 2.0 external authentication`
 
+Filed as [adbc-drivers/trino#129](https://github.com/adbc-drivers/trino/issues/129).
+
 ~~~markdown
 **Summary**
 
@@ -219,6 +238,8 @@ dbt v2 Trino adapter: users must get a JWT themselves and use `method: jwt` toda
 
 Title: `Allow a session user that differs from the authenticated user`
 
+Filed as [adbc-drivers/trino#130](https://github.com/adbc-drivers/trino/issues/130).
+
 ~~~markdown
 **Summary**
 
@@ -243,6 +264,8 @@ dbt v2 Trino adapter: profiles with `impersonation_user` fail today with a clear
 ## Custom HTTP headers
 
 Title: `Allow extra HTTP headers on Trino requests`
+
+Filed as [adbc-drivers/trino#131](https://github.com/adbc-drivers/trino/issues/131).
 
 ~~~markdown
 **Summary**
@@ -301,7 +324,7 @@ adapter requires a keytab today.
 ## MAP and ROW values: comment on #19
 
 Post this as a comment on <https://github.com/adbc-drivers/trino/issues/19>, not as a new
-issue.
+issue. Posted as [adbc-drivers/trino#19 (comment)](https://github.com/adbc-drivers/trino/issues/19#issuecomment-6306250387).
 
 ~~~markdown
 Evidence for MAP and ROW with go/v0.5.3, Trino 483 and adbc-driver-manager 1.12.0 (Python):
@@ -329,6 +352,8 @@ types differ from dbt-trino v1.
 ## TIME WITH TIME ZONE and HyperLogLog values
 
 Title: `TIME WITH TIME ZONE and HyperLogLog values are Go-formatted text`
+
+Filed as [adbc-drivers/trino#132](https://github.com/adbc-drivers/trino/issues/132).
 
 ~~~markdown
 **Summary**
@@ -366,6 +391,8 @@ dbt v2 Trino adapter: `run_query` results differ from dbt-trino v1 for these typ
 ## Manifest name: trino vs adbc_driver_trino
 
 Title: `Which driver name should applications load: trino or adbc_driver_trino?`
+
+Filed as [adbc-drivers/trino#133](https://github.com/adbc-drivers/trino/issues/133).
 
 ~~~markdown
 **Summary**

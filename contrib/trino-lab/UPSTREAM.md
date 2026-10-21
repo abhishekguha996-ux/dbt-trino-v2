@@ -16,7 +16,8 @@ Before the first PR, in this order:
    [TEST-RESULTS.md](TEST-RESULTS.md#fork-run-on-112adf8-linux-x86_64)). TEST-RESULTS.md also
    records the live results of the series on 7bbd974, of its [follow-ups](#follow-ups) F1 and
    F2, and the gates of the `pr/` branches on 112adf8.
-3. File the [driver issues](DRIVER-ISSUES.md).
+3. File the [driver issues](DRIVER-ISSUES.md). **Done:** filed on 20 October 2026 as
+   adbc-drivers/trino #127 to #133, with a comment on #19.
 4. Post the [Slack message](#slack-message) and ask which [PR shape](#pr-shape-options) the
    maintainers want.
 
@@ -604,12 +605,13 @@ Title: `[Trino] Phase 1 adapter for dbt v2: merge plan`
 > `dbt-adbc`) is welcome; whether `AdapterType::Starburst` should use the Trino implementation;
 > how to hand over a Trino target for your CI.
 >
-> **Known driver limits** (adbc-drivers/trino#…, #…), on go/v0.6.1: cancel does not stop a
-> running query; no mTLS, OAuth 2.0, impersonation or custom HTTP headers. The Kerberos ticket
-> cache is not supported by the adapter yet.
+> **Known driver limits**, on go/v0.6.1: cancel does not stop a running query
+> (adbc-drivers/trino#127); no mTLS (#128), OAuth 2.0 (#129), impersonation (#130) or custom
+> HTTP headers (#131); `time with time zone` and HyperLogLog values are Go-formatted text
+> (#132), and so are `map` and `row` values (#19). The Kerberos ticket cache is not supported
+> by the adapter yet.
 
-Put the real issue numbers into the last paragraph. Until the driver issues are filed, write
-"to be reported to adbc-drivers/trino" instead.
+The driver issues were filed on 20 October 2026 (see [DRIVER-ISSUES.md](DRIVER-ISSUES.md)).
 
 ## PR descriptions
 
@@ -1134,3 +1136,10 @@ CA bundle for HTTPS, and the catalog and schema. `http_scheme` follows the metho
   it on Linux x86_64 (see [TEST-RESULTS.md](TEST-RESULTS.md#fork-run-with-driver-gov061)).
 - The Part 1 code comment in `crates/dbt-auth/src/trino/mod.rs` still names go/v0.5.3 and
   trino-go-client v0.333.0. It is unchanged on the `pr/` branches.
+
+## Changes to this kit after the driver issues were filed (20 October)
+
+- The driver issues are filed as adbc-drivers/trino #127 to #133, with a comment on #19 (see
+  [DRIVER-ISSUES.md](DRIVER-ISSUES.md)). The umbrella issue text names them.
+- Before the Slack message, only step 4 is left.
+

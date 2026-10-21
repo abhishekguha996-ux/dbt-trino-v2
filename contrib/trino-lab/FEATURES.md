@@ -16,7 +16,7 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | Password with URL-special characters (`p@ss:w/rd%+#?&`) | Tested [auth] |
 | `method: jwt` | Tested [auth] |
 | `method: kerberos` (keytab) | Unit-tested; not tested against a KDC |
-| `method: certificate`, `oauth`, `oauth_console`, `gssapi` | Not supported by the ADBC driver: clear error (unit-tested) |
+| `method: certificate`, `oauth`, `oauth_console`, `gssapi` | Not supported: clear error (unit-tested). Driver: adbc-drivers/trino#128 (certificate), #129 (OAuth 2.0) |
 | `cert: false` / TLS verification on by default | Tested [auth]; default differs from v1 (see MIGRATION.md) |
 | `host` must be a host name; `query_timeout` as seconds (an integer or a decimal, quoted or not) or a duration; `starburst_*` keys; `role` | Tested [auth]; a decimal `query_timeout` is unit-tested and was checked live ([TEST-RESULTS.md](TEST-RESULTS.md#redgreen-checks-of-the-follow-ups)) |
 | `session_properties` | Tested [features, more] |
@@ -25,7 +25,7 @@ n/t = expected to work (connector-independent) but not in the test matrix.
 | `timezone` | Supported with driver go/v0.6.1: sets the session time zone; without it, the client's time zone. Driver go/v0.5.3 ignores it (see MIGRATION.md) |
 | `catalog` alias for `database` | Unit-tested (`profiles.rs`) |
 | `prepared_statements_enabled`, `retries` | Accepted (see MIGRATION.md) |
-| `http_headers`, `impersonation_user` | Not supported by the driver: clear error (unit-tested) |
+| `http_headers`, `impersonation_user` | Not supported by the driver: clear error (unit-tested). Driver: adbc-drivers/trino#131, #130 |
 | `X-Trino-Source: dbt-trino-<version>` | Tested [auth] |
 | Password / JWT redaction in logs | Tested [auth], unit-tested in `dbt-adbc` |
 | `dbt init` wizard | Unit-tested (headless setup for each method); not in the functional suite |
@@ -119,7 +119,7 @@ anything [incremental].
 | Python models | Not supported (as in v1) |
 | `catalogs.yml` catalog integrations (dbt-trino 1.10) | Not yet: clear error when `catalog_name` is set [more]. A custom macro that calls `adapter.build_catalog_relation` without `catalog_name` gets dbt's shared internal error, because Trino has no default catalog relation yet |
 | Per-model `client_tags` / `http_headers` routing (dbt-trino 1.10) | Not supported yet |
-| `map`, `row`, `time with time zone` and HyperLogLog values in `run_query` | Differ from v1: Go-formatted text, and HyperLogLog fails (driver: adbc-drivers/trino#19 for `map` and `row`; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md)). Arrays become one column per element (dbt v2) |
+| `map`, `row`, `time with time zone` and HyperLogLog values in `run_query` | Differ from v1: Go-formatted text; with driver go/v0.5.3, HyperLogLog fails (driver: adbc-drivers/trino#19 for `map` and `row`, #132 for the others; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md)). Arrays become one column per element (dbt v2) |
 | Static analysis / column-level lineage | Not in the dbt v2 OSS build for any adapter |
-| Ctrl-C cancelling server queries | Known driver limitation [more, expected failure]; see [DRIVER-ISSUES.md](DRIVER-ISSUES.md) |
+| Ctrl-C cancelling server queries | Known driver limitation [more, expected failure]: adbc-drivers/trino#127 |
 | Microbatch `concurrent_batches` | Sequential, with dbt's warning (Iceberg/Delta commit conflicts) |
